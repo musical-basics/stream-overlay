@@ -1,55 +1,66 @@
 -- ============================================================
---  Stream Overlay — database schema
+--  StreamSync Overlay — database schema
 --  Run this in the Supabase SQL Editor (Dashboard > SQL Editor).
 -- ============================================================
 
--- 1. The single, persistent overlay state (one row, id = 1).
-create table if not exists public.overlay_state (
-  id          int primary key default 1,
-  now_playing text not null default '',
-  updated_at  timestamptz not null default now(),
-  constraint overlay_state_singleton check (id = 1)
+create extension if not exists "uuid-ossp";
+
+-- ------------------------------------------------------------
+--  Append-only event log. Every text update and stream-start
+--  marker is a new row. Applause is NOT stored here — it goes
+--  over Realtime Broadcast (ephemeral, see the app code).
+-- ------------------------------------------------------------
+create table if not exists public.stream_events (
+  id         uuid primary key default uuid_generate_v4(),
+  created_at timestamptz not null default now(),
+  event_type text not null check (event_type in ('text_update', 'stream_start')),
+  content    text,                       -- the on-screen text; null for stream_start
+  helper_id  uuid references auth.users (id) on delete set null
 );
 
--- Seed the single row.
-insert into public.overlay_state (id, now_playing)
-values (1, '')
-on conflict (id) do nothing;
-
--- 2. Ephemeral "applause" events. Inserting a row = fire applause.
-create table if not exists public.applause_events (
-  id         bigint generated always as identity primary key,
-  created_at timestamptz not null default now()
-);
+create index if not exists stream_events_type_created_idx
+  on public.stream_events (event_type, created_at desc);
 
 -- ============================================================
 --  Row Level Security
---  The browser (overlay + control panel) uses the ANON key and
---  only needs to READ. All writes go through the server using
---  the SERVICE ROLE key, which bypasses RLS.
+--   - The overlay uses the ANON key and only needs to read the
+--     latest text_update (and receive new ones via Realtime).
+--   - Logged-in helpers can insert events as themselves and read
+--     back ONLY their own submissions (personal history).
+--   - The timestamp export reads everything via the service-role
+--     key on the server, which bypasses RLS.
 -- ============================================================
-alter table public.overlay_state    enable row level security;
-alter table public.applause_events  enable row level security;
+alter table public.stream_events enable row level security;
 
--- Public read access (required so Realtime can deliver row data to the overlay).
-drop policy if exists "public read overlay_state" on public.overlay_state;
-create policy "public read overlay_state"
-  on public.overlay_state for select
-  using (true);
+-- Overlay (anon): read text_update rows so it can show + subscribe to them.
+drop policy if exists "anon read text_update" on public.stream_events;
+create policy "anon read text_update"
+  on public.stream_events for select
+  to anon
+  using (event_type = 'text_update');
 
-drop policy if exists "public read applause_events" on public.applause_events;
-create policy "public read applause_events"
-  on public.applause_events for select
-  using (true);
+-- Helpers: read their OWN events (personal history).
+drop policy if exists "helpers read own" on public.stream_events;
+create policy "helpers read own"
+  on public.stream_events for select
+  to authenticated
+  using (helper_id = auth.uid());
 
--- (No insert/update/delete policies → anon clients cannot write. Good.)
+-- Helpers: insert events, but only attributed to themselves.
+drop policy if exists "helpers insert own" on public.stream_events;
+create policy "helpers insert own"
+  on public.stream_events for insert
+  to authenticated
+  with check (helper_id = auth.uid());
 
 -- ============================================================
---  Enable Realtime on both tables (adds them to the publication).
+--  Realtime: deliver new text_update INSERTs to the overlay.
 -- ============================================================
-alter publication supabase_realtime add table public.overlay_state;
-alter publication supabase_realtime add table public.applause_events;
+alter publication supabase_realtime add table public.stream_events;
 
--- Optional housekeeping: keep applause_events small.
--- You can run this occasionally, or set up a cron job.
--- delete from public.applause_events where created_at < now() - interval '1 day';
+-- ============================================================
+--  Helper accounts
+--  There is no public sign-up. Create each helper manually:
+--  Dashboard > Authentication > Users > "Add user" (email + password),
+--  and tick "Auto Confirm User" so they can log in immediately.
+-- ============================================================

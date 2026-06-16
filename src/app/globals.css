@@ -7,7 +7,7 @@ body {
   margin: 0;
   padding: 0;
   /* Transparent by default so the /overlay route is see-through in OBS.
-     The landing/login/control pages paint their own background. */
+     The landing/login/admin pages paint their own background. */
   background: transparent;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
     Arial, sans-serif;
@@ -133,4 +133,50 @@ button:disabled {
 
 .status.err {
   color: #ff6b6b;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid #262b36;
+  margin: 24px 0;
+}
+
+.btn-sm {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.history {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.history li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #0f1115;
+  border: 1px solid #2b313d;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.history-text {
+  flex: 1;
+  font-size: 14px;
+  color: #e7e9ee;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+textarea {
+  resize: vertical;
+  font-family: inherit;
 }

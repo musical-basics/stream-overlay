@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/lib/supabase/client";
 import styles from "./OverlayCanvas.module.css";
 
 const EMOJIS = ["👏", "🎉", "👏🏽", "🙌", "✨", "👏🏼"];
@@ -123,31 +123,35 @@ export default function OverlayCanvas() {
 
   // ---- Realtime -------------------------------------------------------------
   useEffect(() => {
-    // Initial state.
+    // Initial state: the most recent text_update.
     supabase
-      .from("overlay_state")
-      .select("now_playing")
-      .eq("id", 1)
-      .single()
+      .from("stream_events")
+      .select("content")
+      .eq("event_type", "text_update")
+      .order("created_at", { ascending: false })
+      .limit(1)
       .then(({ data }) => {
-        if (data) setText(data.now_playing ?? "");
+        if (data && data[0]) setText(data[0].content ?? "");
       });
 
     const channel = supabase
-      .channel("overlay-realtime")
+      .channel("overlay")
+      // New text pushed from the control panel (persistent, via Postgres).
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "overlay_state" },
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "stream_events",
+          filter: "event_type=eq.text_update",
+        },
         (payload) => {
-          const next = payload.new as { now_playing?: string };
-          setText(next.now_playing ?? "");
+          const next = payload.new as { content?: string };
+          setText(next.content ?? "");
         }
       )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "applause_events" },
-        () => triggerApplause()
-      )
+      // Applause (ephemeral, via Broadcast — never touches the DB).
+      .on("broadcast", { event: "applause" }, () => triggerApplause())
       .subscribe();
 
     return () => {

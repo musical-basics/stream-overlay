@@ -1,22 +1,12 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { SESSION_COOKIE, isValidSession } from "@/lib/auth";
+import { type NextRequest } from "next/server";
+import { updateSession } from "@/lib/supabase/middleware";
 
-// Protect the control panel. The overlay (/overlay) stays public so OBS can
-// load it with no auth.
-export async function middleware(req: NextRequest) {
-  const token = req.cookies.get(SESSION_COOKIE)?.value;
-
-  if (!(await isValidSession(token))) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("next", req.nextUrl.pathname);
-    return NextResponse.redirect(url);
-  }
-
-  return NextResponse.next();
+// Runs on the control-panel routes: refreshes the Supabase session and
+// redirects unauthenticated users to /login. The overlay stays public.
+export async function middleware(request: NextRequest) {
+  return await updateSession(request);
 }
 
 export const config = {
-  matcher: ["/control/:path*"],
+  matcher: ["/admin/:path*"],
 };

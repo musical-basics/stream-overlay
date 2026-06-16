@@ -11,8 +11,8 @@ export default function Home() {
           <Link className="link" href="/overlay">
             → /overlay &nbsp;(add this URL as a Browser source in OBS)
           </Link>
-          <Link className="link" href="/control">
-            → /control &nbsp;(helper control panel — requires login)
+          <Link className="link" href="/admin">
+            → /admin &nbsp;(helper control panel — requires login)
           </Link>
         </div>
       </div>

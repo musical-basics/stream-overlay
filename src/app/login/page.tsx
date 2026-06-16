@@ -2,12 +2,14 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { supabase } from "@/lib/supabase/client";
 
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/control";
+  const next = params.get("next") || "/admin";
 
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -16,39 +18,48 @@ function LoginForm() {
     e.preventDefault();
     setBusy(true);
     setError("");
-    const res = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
     setBusy(false);
-    if (res.ok) {
-      router.push(next);
-      router.refresh();
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Login failed");
+    if (error) {
+      setError(error.message);
+      return;
     }
+    router.push(next);
+    router.refresh();
   }
 
   return (
     <main className="page">
       <form className="card" onSubmit={submit}>
-        <h1>Control panel login</h1>
-        <p className="muted">Enter the shared password.</p>
+        <h1>Helper login</h1>
+        <p className="muted">Sign in with the account your streamer set up.</p>
+
+        <label htmlFor="email">Email</label>
+        <input
+          id="email"
+          type="email"
+          autoComplete="email"
+          value={email}
+          autoFocus
+          onChange={(e) => setEmail(e.target.value)}
+          style={{ marginBottom: 16 }}
+        />
 
         <label htmlFor="pw">Password</label>
         <input
           id="pw"
           type="password"
+          autoComplete="current-password"
           value={password}
-          autoFocus
           onChange={(e) => setPassword(e.target.value)}
         />
 
         <div style={{ marginTop: 20 }}>
           <button className="btn-primary" type="submit" disabled={busy}>
-            {busy ? "Checking…" : "Log in"}
+            {busy ? "Signing in…" : "Log in"}
           </button>
         </div>
 

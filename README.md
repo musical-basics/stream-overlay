@@ -1,100 +1,113 @@
-# Stream Overlay
+# StreamSync Overlay
 
-A live OBS overlay for YouTube streams with a password-protected control panel.
-You (or a helper) edit a "Now playing" line and trigger floating applause emojis
-+ a sound effect — everything updates on the overlay in real time.
+A real-time OBS overlay for livestreams **plus** a logging/timestamp system.
+Authenticated helpers push a "Now playing" line and trigger applause (sound +
+floating emojis) — everything updates on the overlay live. Every text update is
+logged so you can export **YouTube chapter timestamps** after the stream.
 
-- **`/overlay`** — transparent page you add as a **Browser source** in OBS.
-- **`/control`** — control panel for you/helpers (login required).
-- **`/login`** — single shared password.
+- **`/overlay`** — transparent page you add as a **Browser source** in OBS (public).
+- **`/admin`** — helper control panel: submit text, mark stream start, applause, history (login required).
+- **`/admin/export`** — relative timestamps formatted for YouTube chapters.
+- **`/login`** — Supabase email/password sign-in.
 
-Stack: **Next.js (App Router) · Supabase (Realtime + Postgres) · Vercel**.
+Stack: **Next.js (App Router) · Supabase (Auth + Postgres + Realtime) · Vercel**.
 
 ---
 
 ## How it works
 
 ```
-Helper types in /control ──POST /api/text──▶ overlay_state table ──Realtime──▶ /overlay updates text
-Helper hits "Applause"  ──POST /api/applause─▶ applause_events row ─Realtime──▶ /overlay: emojis + sound
+Helper submits text  ──insert──▶ stream_events (text_update) ──Realtime INSERT──▶ /overlay updates text
+Helper hits Applause ──Broadcast 'applause' on channel "overlay"──────────────▶ /overlay: emojis + sound
+Helper marks start   ──insert──▶ stream_events (stream_start)
+/admin/export        ──service role reads all events──▶ relative timestamps → chapters
 ```
 
-- The browser uses the **public anon key** and can only *read* (enforced by RLS).
-- All *writes* go through server API routes using the **service-role key**, gated
-  by the login cookie. So a viewer who opens `/overlay` can't change anything.
-- The applause **sound is played by the overlay itself** — OBS captures the
-  Browser source's audio automatically (no separate audio wiring needed).
+- **Persistent text** uses **Postgres + Realtime** (append-only log → survives overlay reloads).
+- **Applause** uses **Broadcast** — ephemeral, never written to the DB (lowest latency).
+- The browser uses the **anon key**. RLS lets the overlay read text updates and lets
+  each helper read only *their own* history. All export reads happen server-side with
+  the **service-role key**, so chapters include every helper's updates.
 
 ---
 
 ## Setup (one time, ~10 minutes)
 
 ### 1. Create a Supabase project
-1. Go to <https://supabase.com> → **New project**. Pick a name + password, wait for it to provision.
-2. In the dashboard open **SQL Editor** → **New query**, paste the contents of
-   [`supabase/schema.sql`](supabase/schema.sql), and **Run**. This creates the
-   tables, the read policies, and enables Realtime.
-3. Open **Project Settings → API** and copy three values:
-   - **Project URL**
-   - **anon public** key
-   - **service_role** key (keep this secret)
+1. <https://supabase.com> → **New project**. Pick a name + DB password; wait for it to provision.
+2. **SQL Editor → New query**, paste [`supabase/schema.sql`](supabase/schema.sql), and **Run**.
+   This creates the `stream_events` table, RLS policies, and enables Realtime.
+3. **Project Settings → API**, copy: **Project URL**, **anon public** key, **service_role** key.
 
-### 2. Configure environment variables
-Copy the example file and fill it in:
+### 2. Create helper accounts
+There is no public sign-up. For each helper:
+**Authentication → Users → Add user** → enter email + password, and tick
+**"Auto Confirm User"** so they can log in right away.
 
+### 3. Configure environment variables
 ```bash
 cp .env.local.example .env.local
 ```
-
 ```
 NEXT_PUBLIC_SUPABASE_URL=...          # Project URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...     # anon public key
-SUPABASE_SERVICE_ROLE_KEY=...         # service_role key (secret)
-CONTROL_PASSWORD=pick-a-strong-one    # what helpers type to log in
-SESSION_SECRET=...                    # run: openssl rand -base64 32
+SUPABASE_SERVICE_ROLE_KEY=...         # service_role key (secret, server only)
 ```
 
-### 3. Run locally
+### 4. Run locally
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 - Overlay:  <http://localhost:3000/overlay>
-- Control:  <http://localhost:3000/control>
+- Control:  <http://localhost:3000/admin>  (log in with a helper account)
 
-Open both in two windows, type in the control panel, watch the overlay update.
+Open both in two windows, submit text in the panel, watch the overlay update.
 
-### 4. (Optional) Add a real applause sound
-Drop an `applause.mp3` into the [`public/`](public/) folder. Without it, a
-synthesized applause plays as a fallback.
+### 5. (Optional) Add a real applause sound
+Drop an `applause.mp3` into [`public/`](public/). Without it, a synthesized
+applause plays as a fallback.
 
 ---
 
 ## Deploy to Vercel
-1. Push this repo to GitHub.
-2. On <https://vercel.com> → **New Project** → import the repo.
-3. Add the **same 5 environment variables** from `.env.local` in the Vercel
-   project settings (Production + Preview).
-4. Deploy. Your overlay is at `https://your-app.vercel.app/overlay`.
+1. Push to GitHub (already wired to `musical-basics/stream-overlay`).
+2. <https://vercel.com> → **New Project** → import the repo.
+3. Add the **3 environment variables** from `.env.local` (Production + Preview).
+4. Deploy. Overlay is at `https://your-app.vercel.app/overlay`.
 
 ---
 
 ## Add to OBS
 1. **Sources → + → Browser**.
-2. URL: your `/overlay` URL (local or the deployed one).
-3. Set **Width 1920 / Height 1080** (match your canvas).
-4. Make sure the source's audio is audible to your stream:
-   right-click the source → **Properties** → ensure
-   **"Control audio via OBS"** is enabled (so applause is heard on stream).
-5. Position it on top of your other sources. The background is transparent.
+2. URL: your `/overlay` URL.
+3. **Width 1920 / Height 1080** (match your canvas).
+4. Right-click the source → **Properties** → ensure **"Control audio via OBS"**
+   is enabled so applause is heard on the stream.
+5. Position it on top; the background is transparent.
 
-> Tip: if you edit text/applause and OBS doesn't react, right-click the Browser
-> source → **Refresh**. Realtime reconnects automatically after that.
+> If OBS stops reacting, right-click the Browser source → **Refresh**.
+
+---
+
+## Generating YouTube chapters
+1. When your recording starts, hit **"Mark stream start"** in `/admin`.
+2. Submit "Now playing" texts throughout the stream as usual.
+3. After the stream, open **`/admin/export`** and copy the block, e.g.:
+   ```
+   00:00 Stream Start
+   05:12 Now playing: Für Elise
+   12:48 Now playing: Clair de Lune
+   ```
+4. Paste it into your YouTube video description.
+
+> Export is relative to the **most recent** stream-start marker, so mark it once
+> per stream right when recording begins.
 
 ---
 
 ## Security notes
-- One shared password for all helpers; rotate it by changing `CONTROL_PASSWORD`
-  and redeploying. To force everyone to re-login, also change `SESSION_SECRET`.
-- The service-role key lives only on the server (never `NEXT_PUBLIC_`).
+- Helper accounts are real Supabase users; rotate/revoke them in the dashboard.
+- RLS: the overlay (anon) can read text updates; helpers can read only their own
+  submissions. The service-role key stays server-side (never `NEXT_PUBLIC_`).
 - The overlay is intentionally public and read-only.
