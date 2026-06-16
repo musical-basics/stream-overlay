@@ -35,8 +35,9 @@ create table if not exists stream_overlay.stream_events (
   id         uuid primary key default uuid_generate_v4(),
   created_at timestamptz not null default now(),
   event_type text not null check (event_type in ('text_update', 'stream_start')),
-  content    text,                       -- the on-screen text; null for stream_start
-  helper_id  uuid references auth.users (id) on delete set null
+  content     text,                      -- the on-screen text; null for stream_start
+  helper_id   uuid references auth.users (id) on delete set null,
+  helper_name text                       -- display name shown on the overlay
 );
 
 create index if not exists stream_events_type_created_idx

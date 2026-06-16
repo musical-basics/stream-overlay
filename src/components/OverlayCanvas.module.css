@@ -5,24 +5,26 @@
   pointer-events: none; /* never intercept clicks in OBS */
 }
 
-/* ---- Announcement text ----
-   Positioned ~20% from the top of the screen, horizontally centered.
-   The block's top edge sits at 18% and the text grows downward, so it
-   stays anchored near the top even when it wraps to several lines. */
+/* ---- Announcement ----
+   Positioned ~20% from the top, horizontally centered. The container spans
+   the full width and centers its children; the two message slots overlap in
+   the same grid cell so the outgoing and incoming text animate over each
+   other. The block grows downward as text wraps. */
 .announce {
   position: absolute;
   top: 18%;
-  left: 50%;
-  transform: translate(-50%, 8px);
-  width: max-content;
-  text-align: center;
-  opacity: 0;
-  transition: opacity 0.35s ease, transform 0.35s ease;
+  left: 0;
+  right: 0;
+  display: grid;
+  justify-items: center;
 }
 
-.announce.show {
-  opacity: 1;
-  transform: translate(-50%, 0);
+.slot {
+  grid-area: 1 / 1; /* stack every slot in one cell so they overlap */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 /* White fill with a small black outline. paint-order keeps the white
@@ -40,21 +42,127 @@
   white-space: pre-wrap;
 }
 
+/* Smaller "— Name" line crediting whoever wrote the latest message. */
+.by {
+  margin-top: 0.4em;
+  font-weight: 700;
+  color: #fff;
+  -webkit-text-stroke: 1px #000;
+  paint-order: stroke fill;
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.6);
+  opacity: 0.95;
+}
+
 /* ---- 16:9 (landscape) ---- */
+.landscape .slot {
+  max-width: 82vw;
+}
 .landscape .title {
   font-size: 5.2vh;
-  max-width: 82vw;
+}
+.landscape .by {
+  font-size: 2.2vh;
 }
 
 /* ---- 9:16 (portrait) ----
    Font sized in vw so it scales with the source width. At 6.5vw across an
    ~84vw line, ~20+ average characters fit per line — comfortably above the
-   12-char-per-line minimum — while the 90-char cap (enforced in the control
-   panel) keeps it to a handful of lines. */
+   12-char-per-line minimum. */
+.portrait .slot {
+  max-width: 84vw;
+}
 .portrait .title {
   font-size: 6.5vw;
-  max-width: 84vw;
   -webkit-text-stroke: 1.5px #000;
+}
+.portrait .by {
+  font-size: 3.2vw;
+}
+
+/* ---- Transition animations ----
+   Incoming message: a fancy blur-up entrance with a little overshoot. */
+.entering {
+  animation: enterFancy 0.7s cubic-bezier(0.2, 0.8, 0.2, 1.2) both;
+}
+
+@keyframes enterFancy {
+  0% {
+    opacity: 0;
+    transform: translateY(26px) scale(0.8);
+    filter: blur(8px);
+  }
+  55% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+/* Outgoing message: fade up + blur away while the text turns into a wavy,
+   colour-shifting prism. */
+.exiting {
+  animation: exitFade 1.1s ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes exitFade {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-16px) scale(1.06);
+    filter: blur(4px);
+  }
+}
+
+.exiting .title {
+  background: linear-gradient(
+    90deg,
+    #ff2d55,
+    #ff9500,
+    #ffe600,
+    #34c759,
+    #00c7be,
+    #007aff,
+    #af52de,
+    #ff2d55
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 1.5px rgba(0, 0, 0, 0.55);
+  animation: prismShift 1.1s linear forwards, wave 0.55s ease-in-out 2;
+}
+
+@keyframes prismShift {
+  0% {
+    background-position: 0% 50%;
+    filter: hue-rotate(0deg);
+  }
+  100% {
+    background-position: 300% 50%;
+    filter: hue-rotate(360deg);
+  }
+}
+
+@keyframes wave {
+  0%,
+  100% {
+    transform: skewX(0deg) translateY(0);
+  }
+  25% {
+    transform: skewX(6deg) translateY(-5px);
+  }
+  75% {
+    transform: skewX(-6deg) translateY(5px);
+  }
 }
 
 /* ---- Floating applause emojis ---- */

@@ -21,6 +21,10 @@ type FloatingEmoji = {
 
 let emojiSeq = 0;
 
+// A single announcement on screen. `id` changes per submission so React
+// remounts the element and replays the enter/exit animations.
+type Message = { id: number; text: string; name: string };
+
 export type OverlayAspect = "16:9" | "9:16";
 
 export default function OverlayCanvas({
@@ -28,9 +32,23 @@ export default function OverlayCanvas({
 }: {
   aspect?: OverlayAspect;
 }) {
-  const [text, setText] = useState("");
+  // Two slots: the incoming message (`current`, animates in) and the one it
+  // replaced (`previous`, animates out). They overlap and animate together.
+  const [current, setCurrent] = useState<Message | null>(null);
+  const [previous, setPrevious] = useState<Message | null>(null);
+  const currentRef = useRef<Message | null>(null);
+  const seqRef = useRef(0);
   const [emojis, setEmojis] = useState<FloatingEmoji[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
+
+  // Swap in a new announcement, pushing the old one into the exiting slot.
+  function showMessage(text: string, name: string) {
+    if (!text) return;
+    const msg: Message = { id: ++seqRef.current, text, name: name || "" };
+    setPrevious(currentRef.current);
+    currentRef.current = msg;
+    setCurrent(msg);
+  }
 
   // ---- Audio ----------------------------------------------------------------
   // Tries /public/applause.mp3 first; if it's missing or blocked, falls back to
@@ -132,12 +150,12 @@ export default function OverlayCanvas({
     // Initial state: the most recent text_update.
     supabase
       .from("stream_events")
-      .select("content")
+      .select("content, helper_name")
       .eq("event_type", "text_update")
       .order("created_at", { ascending: false })
       .limit(1)
       .then(({ data }) => {
-        if (data && data[0]) setText(data[0].content ?? "");
+        if (data && data[0]) showMessage(data[0].content ?? "", data[0].helper_name ?? "");
       });
 
     const channel = supabase
@@ -152,8 +170,8 @@ export default function OverlayCanvas({
           filter: "event_type=eq.text_update",
         },
         (payload) => {
-          const next = payload.new as { content?: string };
-          setText(next.content ?? "");
+          const next = payload.new as { content?: string; helper_name?: string };
+          showMessage(next.content ?? "", next.helper_name ?? "");
         }
       )
       // Applause (ephemeral, via Broadcast — never touches the DB).
@@ -170,8 +188,25 @@ export default function OverlayCanvas({
 
   return (
     <div className={`${styles.root} ${aspectClass}`}>
-      <div className={`${styles.announce} ${text ? styles.show : ""}`}>
-        <span className={styles.title}>{text}</span>
+      <div className={styles.announce}>
+        {previous && (
+          <div
+            key={`prev-${previous.id}`}
+            className={`${styles.slot} ${styles.exiting}`}
+            onAnimationEnd={() =>
+              setPrevious((p) => (p && p.id === previous.id ? null : p))
+            }
+          >
+            <span className={styles.title}>{previous.text}</span>
+            {previous.name && <span className={styles.by}>— {previous.name}</span>}
+          </div>
+        )}
+        {current && (
+          <div key={`cur-${current.id}`} className={`${styles.slot} ${styles.entering}`}>
+            <span className={styles.title}>{current.text}</span>
+            {current.name && <span className={styles.by}>— {current.name}</span>}
+          </div>
+        )}
       </div>
 
       {emojis.map((e) => (

@@ -8,10 +8,15 @@ import { supabase } from "@/lib/supabase/client";
 
 type HistoryItem = { id: string; content: string | null; created_at: string };
 
-// Helpers may push to the stream at most once every 5 seconds, and the
-// announcement text is capped at 90 characters.
+// Helpers may push to the stream at most once every 5 seconds.
 const COOLDOWN_MS = 5000;
-const MAX_CHARS = 90;
+
+// Display name for the overlay, derived from the login email:
+// "angena@musicalbasics.com" -> "Angena".
+function displayName(email: string): string {
+  const local = email.split("@")[0] || "Helper";
+  return local.charAt(0).toUpperCase() + local.slice(1);
+}
 
 export default function AdminPanel({
   userId,
@@ -21,6 +26,7 @@ export default function AdminPanel({
   userEmail: string;
 }) {
   const router = useRouter();
+  const helperName = displayName(userEmail);
   const [text, setText] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [status, setStatus] = useState<{ msg: string; ok: boolean }>({
@@ -86,12 +92,17 @@ export default function AdminPanel({
       return;
     }
 
-    const trimmed = content.trim().slice(0, MAX_CHARS);
+    const trimmed = content.trim();
     if (!trimmed) return;
 
     const { data, error } = await supabase
       .from("stream_events")
-      .insert({ event_type: "text_update", content: trimmed, helper_id: userId })
+      .insert({
+        event_type: "text_update",
+        content: trimmed,
+        helper_id: userId,
+        helper_name: helperName,
+      })
       .select("id, content, created_at")
       .single();
 
@@ -157,14 +168,10 @@ export default function AdminPanel({
             id="np"
             rows={3}
             value={text}
-            maxLength={MAX_CHARS}
             placeholder="e.g. Now playing: Für Elise"
-            onChange={(e) => setText(e.target.value.slice(0, MAX_CHARS))}
+            onChange={(e) => setText(e.target.value)}
           />
-          <div
-            className="row"
-            style={{ marginTop: 14, justifyContent: "space-between" }}
-          >
+          <div className="row" style={{ marginTop: 14 }}>
             <button
               className="btn-primary"
               type="submit"
@@ -172,9 +179,6 @@ export default function AdminPanel({
             >
               {cooldown > 0 ? `Wait ${cooldown}s…` : "Submit to stream"}
             </button>
-            <span className="muted">
-              {text.length}/{MAX_CHARS}
-            </span>
           </div>
         </form>
 
