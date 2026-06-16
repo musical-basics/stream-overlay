@@ -180,3 +180,47 @@ textarea {
   resize: vertical;
   font-family: inherit;
 }
+
+/* ---- Mobile ---- */
+@media (max-width: 560px) {
+  .page {
+    /* top-align so the panel isn't pushed off-screen by the keyboard,
+       and respect the notch via safe-area insets. */
+    justify-content: flex-start;
+    padding: 16px;
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-top: max(16px, env(safe-area-inset-top));
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  .card {
+    padding: 18px;
+    border-radius: 14px;
+  }
+
+  /* Let button rows wrap and stack full-width instead of squashing. */
+  .row {
+    flex-wrap: wrap;
+  }
+
+  /* Effects/markers: each button takes a full row for an easy tap target.
+     Scoped to direct children of .row so history "Re-submit" buttons are
+     unaffected. */
+  .row > .btn-applause,
+  .row > .btn-ghost {
+    flex-basis: 100%;
+  }
+
+  /* The header (title + Log out) should stay on one line. */
+  .row:has(> h1) {
+    flex-wrap: nowrap;
+  }
+  .row:has(> h1) > .btn-ghost {
+    flex-basis: auto;
+  }
+
+  button {
+    min-height: 44px;
+  }
+}
