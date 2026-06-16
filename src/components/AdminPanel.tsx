@@ -8,6 +8,11 @@ import { supabase } from "@/lib/supabase/client";
 
 type HistoryItem = { id: string; content: string | null; created_at: string };
 
+// Helpers may push to the stream at most once every 5 seconds, and the
+// announcement text is capped at 90 characters.
+const COOLDOWN_MS = 5000;
+const MAX_CHARS = 90;
+
 export default function AdminPanel({
   userId,
   userEmail,
@@ -23,7 +28,10 @@ export default function AdminPanel({
     ok: true,
   });
   const [applauseBusy, setApplauseBusy] = useState(false);
+  const [cooldown, setCooldown] = useState(0); // seconds left until next push
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const lastPushRef = useRef(0); // timestamp of the last successful push
+  const cooldownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Load this helper's own submission history (RLS limits it to their rows).
   async function loadHistory() {
@@ -45,6 +53,7 @@ export default function AdminPanel({
     channelRef.current = channel;
     return () => {
       supabase.removeChannel(channel);
+      if (cooldownTimer.current) clearInterval(cooldownTimer.current);
     };
   }, []);
 
@@ -52,10 +61,37 @@ export default function AdminPanel({
     setStatus({ msg, ok });
   }
 
+  // Start the 5-second visible countdown after a successful push.
+  function startCooldown() {
+    lastPushRef.current = Date.now();
+    setCooldown(Math.ceil(COOLDOWN_MS / 1000));
+    if (cooldownTimer.current) clearInterval(cooldownTimer.current);
+    cooldownTimer.current = setInterval(() => {
+      const left = Math.ceil((COOLDOWN_MS - (Date.now() - lastPushRef.current)) / 1000);
+      if (left <= 0) {
+        setCooldown(0);
+        if (cooldownTimer.current) clearInterval(cooldownTimer.current);
+      } else {
+        setCooldown(left);
+      }
+    }, 250);
+  }
+
   async function pushText(content: string) {
+    // Rate limit: at most one push per 5s (guarded on a timestamp ref so it
+    // can't be bypassed by stale state).
+    const since = Date.now() - lastPushRef.current;
+    if (since < COOLDOWN_MS) {
+      flash(`Wait ${Math.ceil((COOLDOWN_MS - since) / 1000)}s before submitting again`, false);
+      return;
+    }
+
+    const trimmed = content.trim().slice(0, MAX_CHARS);
+    if (!trimmed) return;
+
     const { data, error } = await supabase
       .from("stream_events")
-      .insert({ event_type: "text_update", content, helper_id: userId })
+      .insert({ event_type: "text_update", content: trimmed, helper_id: userId })
       .select("id, content, created_at")
       .single();
 
@@ -64,6 +100,7 @@ export default function AdminPanel({
       return;
     }
     if (data) setHistory((prev) => [data as HistoryItem, ...prev]);
+    startCooldown();
     flash("Pushed to stream ✓");
   }
 
@@ -113,20 +150,31 @@ export default function AdminPanel({
           Signed in as {userEmail}. Changes appear on the overlay instantly.
         </p>
 
-        {/* ---- Now playing ---- */}
+        {/* ---- Announcement ---- */}
         <form onSubmit={submitText}>
-          <label htmlFor="np">Now playing text</label>
+          <label htmlFor="np">Announcement text</label>
           <textarea
             id="np"
             rows={3}
             value={text}
+            maxLength={MAX_CHARS}
             placeholder="e.g. Now playing: Für Elise"
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => setText(e.target.value.slice(0, MAX_CHARS))}
           />
-          <div className="row" style={{ marginTop: 14 }}>
-            <button className="btn-primary" type="submit">
-              Submit to stream
+          <div
+            className="row"
+            style={{ marginTop: 14, justifyContent: "space-between" }}
+          >
+            <button
+              className="btn-primary"
+              type="submit"
+              disabled={cooldown > 0 || !text.trim()}
+            >
+              {cooldown > 0 ? `Wait ${cooldown}s…` : "Submit to stream"}
             </button>
+            <span className="muted">
+              {text.length}/{MAX_CHARS}
+            </span>
           </div>
         </form>
 
@@ -169,9 +217,10 @@ export default function AdminPanel({
                 <button
                   className="btn-ghost btn-sm"
                   onClick={() => pushText(h.content ?? "")}
+                  disabled={cooldown > 0}
                   title="Push this to the stream again"
                 >
-                  Re-submit
+                  {cooldown > 0 ? `${cooldown}s` : "Re-submit"}
                 </button>
               </li>
             ))}

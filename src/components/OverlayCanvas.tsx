@@ -21,7 +21,13 @@ type FloatingEmoji = {
 
 let emojiSeq = 0;
 
-export default function OverlayCanvas() {
+export type OverlayAspect = "16:9" | "9:16";
+
+export default function OverlayCanvas({
+  aspect = "16:9",
+}: {
+  aspect?: OverlayAspect;
+}) {
   const [text, setText] = useState("");
   const [emojis, setEmojis] = useState<FloatingEmoji[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -160,9 +166,11 @@ export default function OverlayCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const aspectClass = aspect === "9:16" ? styles.portrait : styles.landscape;
+
   return (
-    <div className={styles.root}>
-      <div className={`${styles.lowerThird} ${text ? styles.show : ""}`}>
+    <div className={`${styles.root} ${aspectClass}`}>
+      <div className={`${styles.announce} ${text ? styles.show : ""}`}>
         <span className={styles.title}>{text}</span>
       </div>
 
