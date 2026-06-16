@@ -12,6 +12,7 @@ export async function createSupabaseServer() {
   const cookieStore = await cookies();
 
   return createServerClient(url, anonKey, {
+    db: { schema: "stream_overlay" },
     cookies: {
       getAll() {
         return cookieStore.getAll();

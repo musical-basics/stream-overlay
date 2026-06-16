@@ -11,5 +11,6 @@ const anonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-anon-key";
 
 export const supabase = createBrowserClient(url, anonKey, {
+  db: { schema: "stream_overlay" },
   realtime: { params: { eventsPerSecond: 10 } },
 });
