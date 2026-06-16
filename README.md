@@ -70,11 +70,23 @@ applause plays as a fallback.
 
 ---
 
-## Deploy to Vercel
-1. Push to GitHub (already wired to `musical-basics/stream-overlay`).
-2. <https://vercel.com> → **New Project** → import the repo.
-3. Add the **3 environment variables** from `.env.local` (Production + Preview).
-4. Deploy. Overlay is at `https://your-app.vercel.app/overlay`.
+## Deploy (already live on Vercel)
+Deployed to the **musical-basics** Vercel team with GitHub auto-deploy — every
+push to `main` ships to production.
+
+- Overlay: <https://stream-overlay-iota.vercel.app/overlay>
+- Control: <https://stream-overlay-iota.vercel.app/admin>
+
+The site builds and loads, but **won't be functional until you add your Supabase
+keys** to Vercel and redeploy:
+
+```bash
+vercel env add NEXT_PUBLIC_SUPABASE_URL production --scope musical-basics
+vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY production --scope musical-basics
+vercel env add SUPABASE_SERVICE_ROLE_KEY production --scope musical-basics
+vercel --prod --scope musical-basics   # redeploy with the new vars
+```
+(Or add them in Vercel → Project → **Settings → Environment Variables**.)
 
 ---
 
