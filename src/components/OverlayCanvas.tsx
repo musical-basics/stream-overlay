@@ -141,7 +141,7 @@ export default function OverlayCanvas() {
         "postgres_changes",
         {
           event: "INSERT",
-          schema: "public",
+          schema: "stream_overlay",
           table: "stream_events",
           filter: "event_type=eq.text_update",
         },
