@@ -1,0 +1,74 @@
+.root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none; /* never intercept clicks in OBS */
+}
+
+/* ---- Lower-third "Now playing" text ---- */
+.lowerThird {
+  position: absolute;
+  left: 48px;
+  bottom: 64px;
+  max-width: 70vw;
+  padding: 18px 26px;
+  border-radius: 16px;
+  background: rgba(10, 12, 18, 0.62);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  color: #fff;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.lowerThird.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.kicker {
+  display: block;
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8aa6ff;
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.title {
+  font-size: 40px;
+  line-height: 1.15;
+  font-weight: 800;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  word-break: break-word;
+}
+
+/* ---- Floating applause emojis ---- */
+.emoji {
+  position: absolute;
+  bottom: -60px;
+  font-size: 48px;
+  will-change: transform, opacity;
+  animation-name: floatUp;
+  animation-timing-function: ease-in;
+  animation-fill-mode: forwards;
+}
+
+@keyframes floatUp {
+  0% {
+    transform: translateY(0) translateX(0) scale(0.5) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(-12vh) scale(1) rotate(5deg);
+  }
+  100% {
+    transform: translateY(calc(-1 * var(--rise))) translateX(var(--drift))
+      scale(1) rotate(var(--rot));
+    opacity: 0;
+  }
+}
