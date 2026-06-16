@@ -40,6 +40,13 @@ export default function OverlayCanvas({
   const seqRef = useRef(0);
   const [emojis, setEmojis] = useState<FloatingEmoji[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  // When embedded as a preview (?preview=1) we keep the visuals but skip the
+  // clap audio, so the admin's preview doesn't duplicate the on-stream sound.
+  const mutedRef = useRef(false);
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    mutedRef.current = p.has("preview") || p.get("muted") === "1";
+  }, []);
 
   // Swap in a new announcement, pushing the old one into the exiting slot.
   function showMessage(text: string, name: string) {
@@ -55,6 +62,7 @@ export default function OverlayCanvas({
   // a synthesized applause so the button always does something. OBS captures
   // this Browser source's audio automatically.
   function playApplause() {
+    if (mutedRef.current) return; // preview: visuals only, no sound
     const audio = new Audio("/applause.mp3");
     audio.volume = 0.85;
     audio.play().catch(() => synthApplause());

@@ -35,6 +35,7 @@ export default function AdminPanel({
   });
   const [applauseBusy, setApplauseBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0); // seconds left until next push
+  const [previewAspect, setPreviewAspect] = useState<"16x9" | "9x16">("16x9");
   const channelRef = useRef<RealtimeChannel | null>(null);
   const lastPushRef = useRef(0); // timestamp of the last successful push
   const cooldownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -199,6 +200,38 @@ export default function AdminPanel({
           </button>
         </div>
         <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>
+
+        {/* ---- Live preview ---- */}
+        <hr className="divider" />
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <label style={{ margin: 0 }}>Live preview</label>
+          <div className="row" style={{ gap: 6 }}>
+            <button
+              type="button"
+              className={`btn-ghost btn-sm ${previewAspect === "16x9" ? "seg-active" : ""}`}
+              onClick={() => setPreviewAspect("16x9")}
+            >
+              16:9
+            </button>
+            <button
+              type="button"
+              className={`btn-ghost btn-sm ${previewAspect === "9x16" ? "seg-active" : ""}`}
+              onClick={() => setPreviewAspect("9x16")}
+            >
+              9:16
+            </button>
+          </div>
+        </div>
+        <p className="muted" style={{ margin: "8px 0 0" }}>
+          Exactly what&apos;s on the overlay right now — submit text or hit
+          Applause and watch it here (audio is muted in this preview).
+        </p>
+        <div className={`preview preview-${previewAspect}`}>
+          <iframe
+            title="Overlay preview"
+            src={`/overlay/${previewAspect}?preview=1`}
+          />
+        </div>
 
         {/* ---- History ---- */}
         <hr className="divider" />

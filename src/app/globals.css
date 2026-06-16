@@ -181,6 +181,44 @@ textarea {
   font-family: inherit;
 }
 
+/* ---- Live overlay preview ---- */
+.seg-active {
+  border-color: #4f7cff;
+  color: #fff;
+}
+
+.preview {
+  position: relative;
+  margin-top: 12px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #2b313d;
+  /* A stand-in "scene" so the white/outlined overlay text is clearly
+     visible and the effects pop, like over a real stream. */
+  background: radial-gradient(120% 120% at 50% 0%, #2a3970 0%, #141a2e 60%, #0b0e18 100%);
+}
+
+.preview-16x9 {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+.preview-9x16 {
+  width: 230px;
+  max-width: 100%;
+  aspect-ratio: 9 / 16;
+  margin: 12px auto 0;
+}
+
+.preview iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+
 /* ---- Mobile ---- */
 @media (max-width: 560px) {
   .page {
