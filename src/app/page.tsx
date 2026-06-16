@@ -18,6 +18,23 @@ export default function Home() {
             → /admin &nbsp;(helper control panel — requires login)
           </Link>
         </div>
+
+        <hr className="divider" />
+
+        <h2>For stream helpers</h2>
+        <ol style={{ margin: "8px 0 0", paddingLeft: 20, lineHeight: 1.7 }}>
+          <li>
+            Click{" "}
+            <Link className="link" href="/admin">
+              /admin
+            </Link>{" "}
+            above.
+          </li>
+          <li>Log in with the email and password I gave you.</li>
+          <li>
+            Try submitting the title and pressing the applause button.
+          </li>
+        </ol>
       </div>
     </main>
   );
