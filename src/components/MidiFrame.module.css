@@ -1,0 +1,54 @@
+/* 88-key piano wrapped around the screen edge. ~50% transparent at rest;
+   keys glow in their side colour when their MIDI note is played. */
+.frame {
+  position: absolute;
+  inset: 0;
+  --frame-d: 3.2vmin; /* key depth (inward) */
+  pointer-events: none;
+  z-index: 0;
+}
+
+.slot {
+  position: absolute;
+}
+
+.key {
+  position: absolute;
+  inset: 2px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  transition: background-color 0.04s ease, border-color 0.04s ease,
+    box-shadow 0.2s ease;
+}
+
+/* Synthesia-ish black/white distinction: black keys darker + slightly smaller. */
+.white {
+  background: rgba(236, 240, 255, 0.42);
+}
+.black {
+  background: rgba(8, 10, 20, 0.55);
+  inset: 3.5px;
+  border-radius: 2px;
+}
+
+/* Per-side colours. */
+.left {
+  --c: #38bdf8; /* sky */
+}
+.bottom {
+  --c: #c084fc; /* purple */
+}
+.right {
+  --c: #4ade80; /* green */
+}
+.top {
+  --c: #fbbf24; /* amber */
+}
+
+/* Lit: fill with the side colour + glow. Fades out via the box-shadow/colour
+   transitions when the note is released. */
+.lit {
+  background: var(--c);
+  border-color: var(--c);
+  box-shadow: 0 0 8px var(--c), 0 0 18px var(--c);
+}

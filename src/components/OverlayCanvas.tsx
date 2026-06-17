@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import MidiFrame from "./MidiFrame";
 import styles from "./OverlayCanvas.module.css";
 
 const EMOJIS = ["👏", "🎉", "👏🏽", "🙌", "✨", "👏🏼"];
@@ -196,6 +197,8 @@ export default function OverlayCanvas({
 
   return (
     <div className={`${styles.root} ${aspectClass}`}>
+      <MidiFrame aspect={aspect} />
+
       <div className={styles.announce}>
         {previous && (
           <div

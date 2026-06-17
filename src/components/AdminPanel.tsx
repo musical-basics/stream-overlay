@@ -230,6 +230,7 @@ export default function AdminPanel({
           <iframe
             title="Overlay preview"
             src={`/overlay/${previewAspect}?preview=1`}
+            allow="midi"
           />
         </div>
 
