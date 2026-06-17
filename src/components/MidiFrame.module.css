@@ -1,9 +1,10 @@
-/* 88-key piano wrapped around the screen edge. ~50% transparent at rest;
-   keys glow in their side colour when their MIDI note is played. */
+/* 88-key piano wrapped around the screen edge. White keys tile each side;
+   black keys are narrower/shorter and sit on top. Keys glow in their side
+   colour when their MIDI note is played. */
 .frame {
   position: absolute;
   inset: 0;
-  --frame-d: 3.2vmin; /* key depth (inward) */
+  --frame-d: 4.6vmin; /* white-key depth (inward) */
   pointer-events: none;
   z-index: 0;
 }
@@ -14,21 +15,22 @@
 
 .key {
   position: absolute;
-  inset: 2px;
-  border-radius: 3px;
-  border: 1px solid rgba(0, 0, 0, 0.35);
+  inset: 0;
+  border-radius: 2px;
   transition: background-color 0.04s ease, border-color 0.04s ease,
     box-shadow 0.2s ease;
 }
 
-/* Synthesia-ish black/white distinction: black keys darker + slightly smaller. */
 .white {
-  background: rgba(236, 240, 255, 0.42);
+  background: rgba(244, 247, 255, 0.72);
+  border: 1px solid rgba(0, 0, 0, 0.5);
 }
+
 .black {
-  background: rgba(8, 10, 20, 0.55);
-  inset: 3.5px;
-  border-radius: 2px;
+  background: rgba(10, 10, 14, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.65);
+  border-radius: 0 0 2px 2px;
+  z-index: 2; /* sit above the adjacent white keys */
 }
 
 /* Per-side colours. */
@@ -45,10 +47,11 @@
   --c: #fbbf24; /* amber */
 }
 
-/* Lit: fill with the side colour + glow. Fades out via the box-shadow/colour
-   transitions when the note is released. */
+/* Lit: fill with the side colour + glow (defined after white/black so it
+   overrides their background). Fades out on release via the transitions. */
 .lit {
   background: var(--c);
-  border-color: var(--c);
-  box-shadow: 0 0 8px var(--c), 0 0 18px var(--c);
+  border-color: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 0 8px var(--c), 0 0 20px var(--c);
+  z-index: 3;
 }
