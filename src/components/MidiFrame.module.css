@@ -4,7 +4,7 @@
 .frame {
   position: absolute;
   inset: 0;
-  --frame-d: 4.6vmin; /* white-key depth (inward) */
+  --frame-d: 6.5vmin; /* white-key depth (inward) */
   pointer-events: none;
   z-index: 0;
 }
