@@ -78,7 +78,49 @@ create policy "helpers insert own"
 -- ============================================================
 --  Realtime: deliver new text_update INSERTs to the overlay.
 -- ============================================================
-alter publication supabase_realtime add table stream_overlay.stream_events;
+do $$ begin
+  alter publication supabase_realtime add table stream_overlay.stream_events;
+exception when duplicate_object then null; end $$;
+
+-- ============================================================
+--  Request queue (max 5, maintained by helpers; shown on the
+--  overlay ticker). Ordered by `sort`.
+-- ============================================================
+create table if not exists stream_overlay.requests (
+  id          uuid primary key default uuid_generate_v4(),
+  song        text not null,
+  requester   text not null default '',
+  sort        double precision not null default 0,
+  created_at  timestamptz not null default now(),
+  helper_id   uuid references auth.users (id) on delete set null
+);
+
+grant all on stream_overlay.requests to anon, authenticated, service_role;
+
+alter table stream_overlay.requests enable row level security;
+
+-- Overlay (anon) reads the whole queue for the ticker.
+drop policy if exists "anon read requests" on stream_overlay.requests;
+create policy "anon read requests" on stream_overlay.requests
+  for select to anon using (true);
+
+-- Helpers fully manage the queue.
+drop policy if exists "auth select requests" on stream_overlay.requests;
+create policy "auth select requests" on stream_overlay.requests
+  for select to authenticated using (true);
+drop policy if exists "auth insert requests" on stream_overlay.requests;
+create policy "auth insert requests" on stream_overlay.requests
+  for insert to authenticated with check (true);
+drop policy if exists "auth update requests" on stream_overlay.requests;
+create policy "auth update requests" on stream_overlay.requests
+  for update to authenticated using (true) with check (true);
+drop policy if exists "auth delete requests" on stream_overlay.requests;
+create policy "auth delete requests" on stream_overlay.requests
+  for delete to authenticated using (true);
+
+do $$ begin
+  alter publication supabase_realtime add table stream_overlay.requests;
+exception when duplicate_object then null; end $$;
 
 -- ============================================================
 --  Helper accounts

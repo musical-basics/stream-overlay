@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
+import RequestQueue from "./RequestQueue";
 
 type HistoryItem = { id: string; content: string | null; created_at: string };
 
@@ -182,6 +183,9 @@ export default function AdminPanel({
             </button>
           </div>
         </form>
+
+        {/* ---- Request queue ---- */}
+        <RequestQueue userId={userId} />
 
         {/* ---- Effects + markers ---- */}
         <hr className="divider" />

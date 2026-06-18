@@ -1,0 +1,65 @@
+/* Scrolling request ticker, sitting just inside the top keyboard edge. */
+.ticker {
+  position: absolute;
+  top: 7.8vmin; /* below the top row of keys (~6.5vmin deep) */
+  left: 7.5vmin; /* inside the side keys */
+  right: 7.5vmin;
+  height: 5vmin;
+  display: flex;
+  align-items: stretch;
+  background: rgba(8, 10, 18, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  overflow: hidden;
+  backdrop-filter: blur(3px);
+  z-index: 1;
+}
+
+.label {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 1.6vmin;
+  font-weight: 800;
+  font-size: 2.4vmin;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: rgba(79, 124, 255, 0.92);
+  white-space: nowrap;
+}
+
+.viewport {
+  position: relative;
+  flex: 1 1 auto;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.track {
+  display: inline-flex;
+  white-space: nowrap;
+  will-change: transform;
+  animation-name: scroll;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.group {
+  padding: 0 1.6vmin;
+  font-weight: 700;
+  font-size: 2.7vmin;
+  color: #fff;
+  -webkit-text-stroke: 1px #000;
+  paint-order: stroke fill;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+@keyframes scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
