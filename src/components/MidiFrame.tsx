@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import type { OverlayAspect } from "./OverlayCanvas";
 import styles from "./MidiFrame.module.css";
@@ -118,6 +119,25 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
   const [active, setActive] = useState<Set<number>>(new Set());
   // Lets the "Refresh MIDI connection" broadcast re-run the connect routine.
   const reconnectRef = useRef<() => void>(() => {});
+  // Channel used to relay notes (OBS can't read Web MIDI, so a real browser
+  // broadcasts notes and the OBS overlay lights up from them).
+  const channelRef = useRef<RealtimeChannel | null>(null);
+
+  // Set/clear a lit key. Shared by local MIDI and relayed broadcasts.
+  const applyNote = useCallback((note: number, on: boolean) => {
+    setActive((prev) => {
+      if (on) {
+        if (prev.has(note)) return prev;
+        const next = new Set(prev);
+        next.add(note);
+        return next;
+      }
+      if (!prev.has(note)) return prev;
+      const next = new Set(prev);
+      next.delete(note);
+      return next;
+    });
+  }, []);
 
   useEffect(() => setKeys(buildKeys(aspect)), [aspect]);
 
@@ -143,20 +163,16 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
       const vel = data[2] ?? 0;
       const on = cmd === 0x90 && vel > 0;
       const off = cmd === 0x80 || (cmd === 0x90 && vel === 0);
-      if (on) {
-        setActive((prev) => {
-          const next = new Set(prev);
-          next.add(note);
-          return next;
-        });
-      } else if (off) {
-        setActive((prev) => {
-          if (!prev.has(note)) return prev;
-          const next = new Set(prev);
-          next.delete(note);
-          return next;
-        });
-      }
+      if (!on && !off) return;
+      const lit = on;
+      applyNote(note, lit); // light locally
+      // Relay to other overlay instances (notably the OBS one, which can't
+      // read Web MIDI itself).
+      channelRef.current?.send({
+        type: "broadcast",
+        event: "note",
+        payload: { note, on: lit },
+      });
     };
 
     const attach = (m: MIDIAccess) =>
@@ -183,18 +199,26 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
       reconnectRef.current = () => {};
       if (access) access.inputs.forEach((input) => (input.onmidimessage = null));
     };
-  }, []);
+  }, [applyNote]);
 
-  // Listen for the admin "Refresh MIDI connection" button and re-connect.
+  // Realtime channel: relays notes between overlay instances and carries the
+  // admin "Refresh MIDI connection" signal. The OBS overlay (no Web MIDI)
+  // lights up purely from the relayed "note" broadcasts.
   useEffect(() => {
     const channel = supabase
       .channel("midi")
       .on("broadcast", { event: "refresh" }, () => reconnectRef.current())
+      .on("broadcast", { event: "note" }, (msg) => {
+        const p = (msg.payload ?? {}) as { note?: number; on?: boolean };
+        if (typeof p.note === "number") applyNote(p.note, !!p.on);
+      })
       .subscribe();
+    channelRef.current = channel;
     return () => {
+      channelRef.current = null;
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [applyNote]);
 
   return (
     <div className={styles.frame} aria-hidden>

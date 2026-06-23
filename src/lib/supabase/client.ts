@@ -12,5 +12,6 @@ const anonKey =
 
 export const supabase = createBrowserClient(url, anonKey, {
   db: { schema: "stream_overlay" },
-  realtime: { params: { eventsPerSecond: 10 } },
+  // Higher rate so relayed MIDI notes (which can come fast) aren't throttled.
+  realtime: { params: { eventsPerSecond: 100 } },
 });
