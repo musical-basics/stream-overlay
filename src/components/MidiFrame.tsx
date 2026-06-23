@@ -191,8 +191,16 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
         .catch(() => {});
     };
 
-    reconnectRef.current = connect;
     connect();
+
+    // A real reconnect must re-acquire the device from the browser. Web MIDI
+    // caches the granted MIDIAccess, so re-calling requestMIDIAccess won't
+    // re-scan a keyboard that dropped — it just re-binds the same stale (often
+    // empty) input list. Reloading the page forces the browser to enumerate
+    // MIDI devices from scratch. This only runs in the MIDI-capable overlay
+    // (Lionel's preview / a Web-MIDI browser); OBS has no Web MIDI, so its
+    // reconnect stays the default no-op and the stream never flashes.
+    reconnectRef.current = () => window.location.reload();
 
     return () => {
       cancelled = true;
