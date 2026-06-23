@@ -233,7 +233,9 @@ export default function AdminPanel({
         <div className={`preview preview-${previewAspect}`}>
           <iframe
             title="Overlay preview"
-            src={`/overlay/${previewAspect}?preview=1`}
+            src={`/overlay/${previewAspect}?preview=1${
+              userEmail === "lionel@musicalbasics.com" ? "&midi=1" : ""
+            }`}
             allow="midi"
           />
         </div>

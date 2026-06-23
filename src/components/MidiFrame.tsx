@@ -121,6 +121,14 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
   useEffect(() => {
     if (typeof navigator.requestMIDIAccess !== "function") return; // unsupported
 
+    // Only fire the MIDI permission request in the real overlay (OBS) or when
+    // explicitly allowed (?midi=1). In an admin preview (?preview=1) we skip it
+    // unless midi=1 is also present, so only Lionel's panel prompts for MIDI —
+    // helpers just see the (unlit) keyboard frame.
+    const params = new URLSearchParams(window.location.search);
+    const allowMidi = !params.has("preview") || params.get("midi") === "1";
+    if (!allowMidi) return;
+
     let cancelled = false;
     let access: MIDIAccess | null = null;
 
