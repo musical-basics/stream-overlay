@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase/client";
 import type { OverlayAspect } from "./OverlayCanvas";
 import styles from "./MidiFrame.module.css";
 
@@ -115,6 +116,8 @@ function styleFor(k: Placed): React.CSSProperties {
 export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
   const [keys, setKeys] = useState<Placed[]>(() => buildKeys(aspect));
   const [active, setActive] = useState<Set<number>>(new Set());
+  // Lets the "Refresh MIDI connection" broadcast re-run the connect routine.
+  const reconnectRef = useRef<() => void>(() => {});
 
   useEffect(() => setKeys(buildKeys(aspect)), [aspect]);
 
@@ -159,19 +162,37 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
     const attach = (m: MIDIAccess) =>
       m.inputs.forEach((input) => (input.onmidimessage = onMessage));
 
-    navigator
-      .requestMIDIAccess({ sysex: false })
-      .then((m) => {
-        if (cancelled) return;
-        access = m;
-        attach(m);
-        m.onstatechange = () => attach(m);
-      })
-      .catch(() => {});
+    const connect = () => {
+      navigator
+        .requestMIDIAccess({ sysex: false })
+        .then((m) => {
+          if (cancelled) return;
+          access = m;
+          attach(m);
+          m.onstatechange = () => attach(m);
+          setActive(new Set()); // clear any stuck/lit notes on (re)connect
+        })
+        .catch(() => {});
+    };
+
+    reconnectRef.current = connect;
+    connect();
 
     return () => {
       cancelled = true;
+      reconnectRef.current = () => {};
       if (access) access.inputs.forEach((input) => (input.onmidimessage = null));
+    };
+  }, []);
+
+  // Listen for the admin "Refresh MIDI connection" button and re-connect.
+  useEffect(() => {
+    const channel = supabase
+      .channel("midi")
+      .on("broadcast", { event: "refresh" }, () => reconnectRef.current())
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
     };
   }, []);
 

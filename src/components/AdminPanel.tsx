@@ -38,8 +38,10 @@ export default function AdminPanel({
   const [cooldown, setCooldown] = useState(0); // seconds left until next push
   const [previewAspect, setPreviewAspect] = useState<"16x9" | "9x16">("16x9");
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const midiChannelRef = useRef<RealtimeChannel | null>(null);
   const lastPushRef = useRef(0); // timestamp of the last successful push
   const cooldownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isLionel = userEmail === "lionel@musicalbasics.com";
 
   // Load this helper's own submission history (RLS limits it to their rows).
   async function loadHistory() {
@@ -59,8 +61,15 @@ export default function AdminPanel({
     const channel = supabase.channel("overlay");
     channel.subscribe();
     channelRef.current = channel;
+
+    // Separate channel for the MIDI-reconnect signal.
+    const midiChannel = supabase.channel("midi");
+    midiChannel.subscribe();
+    midiChannelRef.current = midiChannel;
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(midiChannel);
       if (cooldownTimer.current) clearInterval(cooldownTimer.current);
     };
   }, []);
@@ -142,6 +151,15 @@ export default function AdminPanel({
     });
     flash(res === "ok" ? "Applause sent 👏" : "Applause sent 👏");
     setTimeout(() => setApplauseBusy(false), 1200);
+  }
+
+  async function refreshMidi() {
+    await midiChannelRef.current?.send({
+      type: "broadcast",
+      event: "refresh",
+      payload: {},
+    });
+    flash("MIDI reconnect sent 🎹");
   }
 
   async function logout() {
@@ -233,12 +251,21 @@ export default function AdminPanel({
         <div className={`preview preview-${previewAspect}`}>
           <iframe
             title="Overlay preview"
-            src={`/overlay/${previewAspect}?preview=1${
-              userEmail === "lionel@musicalbasics.com" ? "&midi=1" : ""
-            }`}
+            src={`/overlay/${previewAspect}?preview=1${isLionel ? "&midi=1" : ""}`}
             allow="midi"
           />
         </div>
+
+        {isLionel && (
+          <button
+            className="btn-ghost"
+            style={{ width: "100%", marginTop: 10 }}
+            onClick={refreshMidi}
+            title="Re-establish the MIDI connection on the overlay if it stops responding"
+          >
+            🎹 Refresh MIDI connection
+          </button>
+        )}
 
         {/* ---- History ---- */}
         <hr className="divider" />
