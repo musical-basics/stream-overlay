@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
+import { parseYouTubeId } from "@/lib/youtube";
 import RequestQueue from "./RequestQueue";
 
 type HistoryItem = { id: string; content: string | null; created_at: string };
@@ -31,6 +32,8 @@ export default function AdminPanel({
   const [text, setText] = useState("");
   const [nowPlaying, setNowPlaying] = useState("");
   const [npSaving, setNpSaving] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [chatSaving, setChatSaving] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [status, setStatus] = useState<{ msg: string; ok: boolean }>({
     msg: "",
@@ -68,9 +71,20 @@ export default function AdminPanel({
     if (data) setNowPlaying(data.song ?? "");
   }
 
+  // Load the current YouTube live-chat video id so the field is pre-filled.
+  async function loadChatSettings() {
+    const { data } = await supabase
+      .from("chat_settings")
+      .select("video_id")
+      .eq("id", 1)
+      .maybeSingle();
+    if (data) setChatInput(data.video_id ?? "");
+  }
+
   useEffect(() => {
     loadHistory();
     loadNowPlaying();
+    loadChatSettings();
 
     // Shared channel with the overlay — used to broadcast applause.
     const channel = supabase.channel("overlay");
@@ -172,6 +186,28 @@ export default function AdminPanel({
     flash(error ? error.message : "Now playing updated 🎶", !error);
   }
 
+  // Set the YouTube live-chat embed (singleton row, id = 1). Accepts a full
+  // YouTube URL or a bare video id; we extract the id before storing so the
+  // overlay can build the live_chat embed URL directly.
+  async function saveChatSettings(e: React.FormEvent) {
+    e.preventDefault();
+    setChatSaving(true);
+    const videoId = parseYouTubeId(chatInput);
+    const { error } = await supabase.from("chat_settings").upsert(
+      {
+        id: 1,
+        video_id: videoId,
+        helper_id: userId,
+        helper_name: helperName,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
+    if (!error) setChatInput(videoId); // reflect the normalized id back
+    setChatSaving(false);
+    flash(error ? error.message : "Live chat updated 💬", !error);
+  }
+
   async function markStreamStart() {
     const { error } = await supabase
       .from("stream_events")
@@ -271,6 +307,29 @@ export default function AdminPanel({
           <p className="muted" style={{ margin: "8px 0 0" }}>
             Persistent — stays on screen until you change it. Clear it and hit
             Set to hide the label.
+          </p>
+        </form>
+
+        {/* ---- Live chat embed (persistent) ---- */}
+        <hr className="divider" />
+        <form onSubmit={saveChatSettings}>
+          <label htmlFor="chat">Live chat (YouTube — shown top-right on overlay)</label>
+          <div className="row" style={{ gap: 10 }}>
+            <input
+              id="chat"
+              type="text"
+              style={{ flex: 1 }}
+              value={chatInput}
+              placeholder="YouTube live URL or video ID"
+              onChange={(e) => setChatInput(e.target.value)}
+            />
+            <button className="btn-primary" type="submit" disabled={chatSaving}>
+              {chatSaving ? "Saving…" : "Set"}
+            </button>
+          </div>
+          <p className="muted" style={{ margin: "8px 0 0" }}>
+            Paste the live stream URL (or just the video ID) for the current
+            stream. Clear it and hit Set to hide the chat.
           </p>
         </form>
 

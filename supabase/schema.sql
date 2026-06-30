@@ -165,6 +165,46 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 -- ============================================================
+--  Chat embed — the YouTube live-chat video id for the current
+--  stream, shown top-right on the overlay. Like now_playing this
+--  is a single mutable row admins set each stream. Singleton: id = 1.
+-- ============================================================
+create table if not exists stream_overlay.chat_settings (
+  id          smallint primary key default 1 check (id = 1),
+  video_id    text not null default '',  -- YouTube video id of the live stream
+  helper_id   uuid references auth.users (id) on delete set null,
+  helper_name text,
+  updated_at  timestamptz not null default now()
+);
+
+insert into stream_overlay.chat_settings (id, video_id) values (1, '')
+  on conflict (id) do nothing;
+
+grant all on stream_overlay.chat_settings to anon, authenticated, service_role;
+
+alter table stream_overlay.chat_settings enable row level security;
+
+-- Overlay (anon) reads the current video id for the chat embed.
+drop policy if exists "anon read chat_settings" on stream_overlay.chat_settings;
+create policy "anon read chat_settings" on stream_overlay.chat_settings
+  for select to anon using (true);
+
+-- Helpers read + overwrite the single value.
+drop policy if exists "auth select chat_settings" on stream_overlay.chat_settings;
+create policy "auth select chat_settings" on stream_overlay.chat_settings
+  for select to authenticated using (true);
+drop policy if exists "auth insert chat_settings" on stream_overlay.chat_settings;
+create policy "auth insert chat_settings" on stream_overlay.chat_settings
+  for insert to authenticated with check (true);
+drop policy if exists "auth update chat_settings" on stream_overlay.chat_settings;
+create policy "auth update chat_settings" on stream_overlay.chat_settings
+  for update to authenticated using (true) with check (true);
+
+do $$ begin
+  alter publication supabase_realtime add table stream_overlay.chat_settings;
+exception when duplicate_object then null; end $$;
+
+-- ============================================================
 --  Helper accounts
 --  There is no public sign-up. Create each helper manually:
 --  Dashboard > Authentication > Users > "Add user" (email + password),
