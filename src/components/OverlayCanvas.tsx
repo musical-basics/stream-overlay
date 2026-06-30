@@ -9,6 +9,9 @@ import styles from "./OverlayCanvas.module.css";
 const EMOJIS = ["👏", "🎉", "👏🏽", "🙌", "✨", "👏🏼"];
 const PER_BURST = 12; // "not too many"
 const MAX_ON_SCREEN = 40;
+// How long a message lingers before fading out on its own. A newer message
+// always pre-empts this, so it's an upper bound, not a fixed lifetime.
+const MESSAGE_TTL_MS = 15_000;
 
 type FloatingEmoji = {
   id: number;
@@ -40,6 +43,8 @@ export default function OverlayCanvas({
   const [previous, setPrevious] = useState<Message | null>(null);
   const currentRef = useRef<Message | null>(null);
   const seqRef = useRef(0);
+  // Pending auto-dismiss timer for the message currently on screen.
+  const dismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [emojis, setEmojis] = useState<FloatingEmoji[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
   // When embedded as a preview (?preview=1) we keep the visuals but skip the
@@ -54,9 +59,18 @@ export default function OverlayCanvas({
   function showMessage(text: string, name: string) {
     if (!text) return;
     const msg: Message = { id: ++seqRef.current, text, name: name || "" };
+    if (dismissRef.current) clearTimeout(dismissRef.current);
     setPrevious(currentRef.current);
     currentRef.current = msg;
     setCurrent(msg);
+    // Auto-dismiss after the TTL unless a newer message replaces it first
+    // (a replacement clears this timer above, so only the latest one fades).
+    dismissRef.current = setTimeout(() => {
+      if (currentRef.current?.id !== msg.id) return; // already replaced
+      setPrevious(msg); // move it into the exiting (fade-out) slot
+      currentRef.current = null;
+      setCurrent(null);
+    }, MESSAGE_TTL_MS);
   }
 
   // ---- Audio ----------------------------------------------------------------
@@ -190,6 +204,7 @@ export default function OverlayCanvas({
 
     return () => {
       supabase.removeChannel(channel);
+      if (dismissRef.current) clearTimeout(dismissRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
