@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase/client";
 import styles from "./ChatEmbed.module.css";
 
 // Live YouTube chat rendered as our own text on a transparent background
 // (top-right, under the request ticker). The video id is admin-set per stream
-// in chat_settings; we poll /api/chat (which talks to the YouTube Data API
-// server-side) for new messages. Hidden until there are messages to show.
+// (passed in by TopRightPanel); we poll /api/chat (which talks to the YouTube
+// Data API server-side) for new messages. Hidden until there are messages.
 
 type Msg = { id: string; author: string; message: string };
 
@@ -21,35 +20,8 @@ type ChatResponse = {
 
 const MAX_MESSAGES = 20; // keep the newest N on screen
 
-export default function ChatEmbed() {
-  const [videoId, setVideoId] = useState("");
+export default function ChatEmbed({ videoId }: { videoId: string }) {
   const [messages, setMessages] = useState<Msg[]>([]);
-
-  // Track the current video id (admin-set) and live-update on change.
-  useEffect(() => {
-    const load = async () => {
-      const { data } = await supabase
-        .from("chat_settings")
-        .select("video_id")
-        .eq("id", 1)
-        .maybeSingle();
-      setVideoId((data?.video_id ?? "").trim());
-    };
-    load();
-
-    const channel = supabase
-      .channel("chat-settings")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "stream_overlay", table: "chat_settings" },
-        () => load()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
 
   // Poll the server route for new messages while a video id is set.
   useEffect(() => {

@@ -7,6 +7,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import { parseYouTubeId } from "@/lib/youtube";
 import RequestQueue from "./RequestQueue";
+import DoNotRequestQueue from "./DoNotRequestQueue";
 
 type HistoryItem = { id: string; content: string | null; created_at: string };
 
@@ -34,6 +35,7 @@ export default function AdminPanel({
   const [npSaving, setNpSaving] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatSaving, setChatSaving] = useState(false);
+  const [panelMode, setPanelMode] = useState("chat"); // chat | blocklist | off
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [status, setStatus] = useState<{ msg: string; ok: boolean }>({
     msg: "",
@@ -75,10 +77,13 @@ export default function AdminPanel({
   async function loadChatSettings() {
     const { data } = await supabase
       .from("chat_settings")
-      .select("video_id")
+      .select("video_id, panel_mode")
       .eq("id", 1)
       .maybeSingle();
-    if (data) setChatInput(data.video_id ?? "");
+    if (data) {
+      setChatInput(data.video_id ?? "");
+      setPanelMode((data.panel_mode ?? "chat") || "chat");
+    }
   }
 
   useEffect(() => {
@@ -208,6 +213,33 @@ export default function AdminPanel({
     flash(error ? error.message : "Live chat updated 💬", !error);
   }
 
+  // Switch what the top-right overlay panel shows (chat | blocklist | off).
+  // Optimistic — reflect immediately, then persist (panel_mode only, so it
+  // doesn't disturb the stored video id).
+  async function savePanelMode(mode: string) {
+    setPanelMode(mode);
+    const { error } = await supabase.from("chat_settings").upsert(
+      {
+        id: 1,
+        panel_mode: mode,
+        helper_id: userId,
+        helper_name: helperName,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
+    flash(
+      error
+        ? error.message
+        : mode === "chat"
+          ? "Overlay panel → Live chat 💬"
+          : mode === "blocklist"
+            ? "Overlay panel → Do-not-request 🚫"
+            : "Overlay panel hidden",
+      !error
+    );
+  }
+
   async function markStreamStart() {
     const { error } = await supabase
       .from("stream_events")
@@ -310,10 +342,42 @@ export default function AdminPanel({
           </p>
         </form>
 
-        {/* ---- Live chat embed (persistent) ---- */}
+        {/* ---- Top-right overlay panel ---- */}
         <hr className="divider" />
-        <form onSubmit={saveChatSettings}>
-          <label htmlFor="chat">Live chat (YouTube — shown top-right on overlay)</label>
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <label style={{ margin: 0 }}>Top-right overlay panel</label>
+          <div className="row" style={{ gap: 6 }}>
+            <button
+              type="button"
+              className={`btn-ghost btn-sm ${panelMode === "chat" ? "seg-active" : ""}`}
+              onClick={() => savePanelMode("chat")}
+            >
+              💬 Live chat
+            </button>
+            <button
+              type="button"
+              className={`btn-ghost btn-sm ${panelMode === "blocklist" ? "seg-active" : ""}`}
+              onClick={() => savePanelMode("blocklist")}
+            >
+              🚫 Do-not-request
+            </button>
+            <button
+              type="button"
+              className={`btn-ghost btn-sm ${panelMode === "off" ? "seg-active" : ""}`}
+              onClick={() => savePanelMode("off")}
+            >
+              Off
+            </button>
+          </div>
+        </div>
+        <p className="muted" style={{ margin: "8px 0 0" }}>
+          Pick what shows in the overlay’s top-right corner. Both are editable
+          below regardless of which is on screen.
+        </p>
+
+        {/* ---- Live chat embed (persistent) ---- */}
+        <form onSubmit={saveChatSettings} style={{ marginTop: 14 }}>
+          <label htmlFor="chat">Live chat video (YouTube)</label>
           <div className="row" style={{ gap: 10 }}>
             <input
               id="chat"
@@ -329,9 +393,12 @@ export default function AdminPanel({
           </div>
           <p className="muted" style={{ margin: "8px 0 0" }}>
             Paste the live stream URL (or just the video ID) for the current
-            stream. Clear it and hit Set to hide the chat.
+            stream.
           </p>
         </form>
+
+        {/* ---- Do-not-request list ---- */}
+        <DoNotRequestQueue userId={userId} />
 
         {/* ---- Request queue ---- */}
         <RequestQueue userId={userId} />

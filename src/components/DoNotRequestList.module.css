@@ -1,0 +1,80 @@
+/* "Do not request" list as text on a transparent background, top-right under
+   the request ticker — same placement as the chat panel. */
+.panel {
+  position: absolute;
+  top: 13.6vmin;
+  right: 7.5vmin;
+  width: 30vmin;
+  min-width: 280px;
+  max-width: 420px;
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6vmin;
+  overflow: hidden;
+  pointer-events: none; /* display only */
+  z-index: 1;
+}
+
+.header {
+  align-self: flex-end;
+  padding: 0.4vmin 1.2vmin;
+  border-radius: 6px;
+  background: rgba(255, 59, 48, 0.92);
+  color: #fff;
+  font-weight: 800;
+  font-size: 2.1vmin;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4vmin;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  animation: dnrIn 0.25s ease-out both;
+}
+
+.song {
+  font-weight: 800;
+  font-size: 2.3vmin;
+  line-height: 1.2;
+  color: #fff;
+  -webkit-text-stroke: 1px #000;
+  paint-order: stroke fill;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.note {
+  font-weight: 700;
+  font-size: 1.7vmin;
+  line-height: 1.2;
+  color: #ffd6d2;
+  -webkit-text-stroke: 0.6px #000;
+  paint-order: stroke fill;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+@keyframes dnrIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase/client";
 import MidiFrame from "./MidiFrame";
 import RequestTicker from "./RequestTicker";
 import NowPlaying from "./NowPlaying";
-import ChatEmbed from "./ChatEmbed";
+import TopRightPanel from "./TopRightPanel";
 import styles from "./OverlayCanvas.module.css";
 
 const EMOJIS = ["👏", "🎉", "👏🏽", "🙌", "✨", "👏🏼"];
@@ -218,7 +218,7 @@ export default function OverlayCanvas({
       <MidiFrame aspect={aspect} />
       <RequestTicker />
       <NowPlaying />
-      <ChatEmbed />
+      <TopRightPanel />
 
       <div className={styles.announce}>
         {previous && (

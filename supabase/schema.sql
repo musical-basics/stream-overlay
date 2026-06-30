@@ -172,10 +172,17 @@ exception when duplicate_object then null; end $$;
 create table if not exists stream_overlay.chat_settings (
   id          smallint primary key default 1 check (id = 1),
   video_id    text not null default '',  -- YouTube video id of the live stream
+  -- Which widget the top-right overlay panel shows: 'chat' (live chat),
+  -- 'blocklist' (the do-not-request list) or 'off' (nothing).
+  panel_mode  text not null default 'chat',
   helper_id   uuid references auth.users (id) on delete set null,
   helper_name text,
   updated_at  timestamptz not null default now()
 );
+
+-- For existing deployments created before panel_mode existed.
+alter table stream_overlay.chat_settings
+  add column if not exists panel_mode text not null default 'chat';
 
 insert into stream_overlay.chat_settings (id, video_id) values (1, '')
   on conflict (id) do nothing;
@@ -202,6 +209,48 @@ create policy "auth update chat_settings" on stream_overlay.chat_settings
 
 do $$ begin
   alter publication supabase_realtime add table stream_overlay.chat_settings;
+exception when duplicate_object then null; end $$;
+
+-- ============================================================
+--  "Do not request / overplayed" list. Songs the streamer doesn't
+--  want requested, shown in the top-right overlay panel when
+--  chat_settings.panel_mode = 'blocklist'. Helpers fully manage it
+--  (same access model as the request queue). Ordered by `sort`.
+-- ============================================================
+create table if not exists stream_overlay.do_not_request (
+  id          uuid primary key default uuid_generate_v4(),
+  song        text not null,
+  note        text not null default '',  -- optional reason, e.g. "overplayed"
+  sort        double precision not null default 0,
+  created_at  timestamptz not null default now(),
+  helper_id   uuid references auth.users (id) on delete set null
+);
+
+grant all on stream_overlay.do_not_request to anon, authenticated, service_role;
+
+alter table stream_overlay.do_not_request enable row level security;
+
+-- Overlay (anon) reads the whole list for display.
+drop policy if exists "anon read do_not_request" on stream_overlay.do_not_request;
+create policy "anon read do_not_request" on stream_overlay.do_not_request
+  for select to anon using (true);
+
+-- Helpers fully manage the list.
+drop policy if exists "auth select do_not_request" on stream_overlay.do_not_request;
+create policy "auth select do_not_request" on stream_overlay.do_not_request
+  for select to authenticated using (true);
+drop policy if exists "auth insert do_not_request" on stream_overlay.do_not_request;
+create policy "auth insert do_not_request" on stream_overlay.do_not_request
+  for insert to authenticated with check (true);
+drop policy if exists "auth update do_not_request" on stream_overlay.do_not_request;
+create policy "auth update do_not_request" on stream_overlay.do_not_request
+  for update to authenticated using (true) with check (true);
+drop policy if exists "auth delete do_not_request" on stream_overlay.do_not_request;
+create policy "auth delete do_not_request" on stream_overlay.do_not_request
+  for delete to authenticated using (true);
+
+do $$ begin
+  alter publication supabase_realtime add table stream_overlay.do_not_request;
 exception when duplicate_object then null; end $$;
 
 -- ============================================================
