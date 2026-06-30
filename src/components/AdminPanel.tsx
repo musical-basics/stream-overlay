@@ -36,6 +36,8 @@ export default function AdminPanel({
     msg: "",
     ok: true,
   });
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [applauseBusy, setApplauseBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0); // seconds left until next push
   const [previewAspect, setPreviewAspect] = useState<"16x9" | "9x16">("16x9");
@@ -84,11 +86,17 @@ export default function AdminPanel({
       supabase.removeChannel(channel);
       supabase.removeChannel(midiChannel);
       if (cooldownTimer.current) clearInterval(cooldownTimer.current);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
     };
   }, []);
 
   function flash(msg: string, ok = true) {
     setStatus({ msg, ok });
+    // Also surface a transient toast so confirmation is visible no matter which
+    // control triggered it (the inline status line can be far down the panel).
+    setToast({ msg, ok });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2600);
   }
 
   // Start the 5-second visible countdown after a successful push.
@@ -202,6 +210,15 @@ export default function AdminPanel({
 
   return (
     <main className="page">
+      {toast && (
+        <div
+          className={`toast ${toast.ok ? "toast-ok" : "toast-err"}`}
+          role="status"
+          aria-live="polite"
+        >
+          {toast.msg}
+        </div>
+      )}
       <div className="card" style={{ maxWidth: 640 }}>
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h1>Control panel</h1>
