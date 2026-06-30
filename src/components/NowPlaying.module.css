@@ -1,0 +1,47 @@
+/* Persistent "now playing" chip, sitting top-left just under the request
+   ticker (which ends ~12.8vmin down). Mirrors the ticker's visual language —
+   same height, fonts and translucent backdrop — but with a green label so the
+   two read as distinct. */
+.nowPlaying {
+  position: absolute;
+  top: 13.6vmin; /* just below the requests ticker */
+  left: 7.5vmin; /* aligned with the ticker's left edge */
+  max-width: 60vmin;
+  height: 5vmin;
+  display: flex;
+  align-items: stretch;
+  background: rgba(8, 10, 18, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  overflow: hidden;
+  backdrop-filter: blur(3px);
+  z-index: 1;
+}
+
+.label {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 1.6vmin;
+  font-weight: 800;
+  font-size: 2.4vmin;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: rgba(52, 199, 89, 0.92);
+  white-space: nowrap;
+}
+
+.song {
+  display: flex;
+  align-items: center;
+  padding: 0 1.6vmin;
+  font-weight: 700;
+  font-size: 2.7vmin;
+  color: #fff;
+  -webkit-text-stroke: 1px #000;
+  paint-order: stroke fill;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

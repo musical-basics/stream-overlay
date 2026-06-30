@@ -29,6 +29,8 @@ export default function AdminPanel({
   const router = useRouter();
   const helperName = displayName(userEmail);
   const [text, setText] = useState("");
+  const [nowPlaying, setNowPlaying] = useState("");
+  const [npSaving, setNpSaving] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [status, setStatus] = useState<{ msg: string; ok: boolean }>({
     msg: "",
@@ -54,8 +56,19 @@ export default function AdminPanel({
     if (data) setHistory(data as HistoryItem[]);
   }
 
+  // Load the current persistent "now playing" value so the field is pre-filled.
+  async function loadNowPlaying() {
+    const { data } = await supabase
+      .from("now_playing")
+      .select("song")
+      .eq("id", 1)
+      .maybeSingle();
+    if (data) setNowPlaying(data.song ?? "");
+  }
+
   useEffect(() => {
     loadHistory();
+    loadNowPlaying();
 
     // Shared channel with the overlay — used to broadcast applause.
     const channel = supabase.channel("overlay");
@@ -132,6 +145,25 @@ export default function AdminPanel({
     await pushText(text.trim());
   }
 
+  // Overwrite the persistent "now playing" value (singleton row, id = 1).
+  // Not rate-limited like announcements — it's a standing field, not a push.
+  async function saveNowPlaying(e: React.FormEvent) {
+    e.preventDefault();
+    setNpSaving(true);
+    const { error } = await supabase.from("now_playing").upsert(
+      {
+        id: 1,
+        song: nowPlaying.trim(),
+        helper_id: userId,
+        helper_name: helperName,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
+    setNpSaving(false);
+    flash(error ? error.message : "Now playing updated 🎶", !error);
+  }
+
   async function markStreamStart() {
     const { error } = await supabase
       .from("stream_events")
@@ -200,6 +232,29 @@ export default function AdminPanel({
               {cooldown > 0 ? `Wait ${cooldown}s…` : "Submit to stream"}
             </button>
           </div>
+        </form>
+
+        {/* ---- Now playing (persistent) ---- */}
+        <hr className="divider" />
+        <form onSubmit={saveNowPlaying}>
+          <label htmlFor="nowplaying">Now playing (stays top-left on overlay)</label>
+          <div className="row" style={{ gap: 10 }}>
+            <input
+              id="nowplaying"
+              type="text"
+              style={{ flex: 1 }}
+              value={nowPlaying}
+              placeholder="e.g. Clair de Lune — Debussy"
+              onChange={(e) => setNowPlaying(e.target.value)}
+            />
+            <button className="btn-primary" type="submit" disabled={npSaving}>
+              {npSaving ? "Saving…" : "Set"}
+            </button>
+          </div>
+          <p className="muted" style={{ margin: "8px 0 0" }}>
+            Persistent — stays on screen until you change it. Clear it and hit
+            Set to hide the label.
+          </p>
         </form>
 
         {/* ---- Request queue ---- */}

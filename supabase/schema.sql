@@ -123,6 +123,48 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 -- ============================================================
+--  "Now playing" — a single persistent value shown top-left on
+--  the overlay. Unlike the announcement (an append-only event
+--  that fades), this is one mutable row that admins overwrite and
+--  that stays on screen until changed. Singleton: id is pinned to 1.
+-- ============================================================
+create table if not exists stream_overlay.now_playing (
+  id          smallint primary key default 1 check (id = 1),
+  song        text not null default '',
+  helper_id   uuid references auth.users (id) on delete set null,
+  helper_name text,
+  updated_at  timestamptz not null default now()
+);
+
+-- Seed the single row so the overlay always has something to read.
+insert into stream_overlay.now_playing (id, song) values (1, '')
+  on conflict (id) do nothing;
+
+grant all on stream_overlay.now_playing to anon, authenticated, service_role;
+
+alter table stream_overlay.now_playing enable row level security;
+
+-- Overlay (anon) reads the current value for display.
+drop policy if exists "anon read now_playing" on stream_overlay.now_playing;
+create policy "anon read now_playing" on stream_overlay.now_playing
+  for select to anon using (true);
+
+-- Helpers read + overwrite the single value.
+drop policy if exists "auth select now_playing" on stream_overlay.now_playing;
+create policy "auth select now_playing" on stream_overlay.now_playing
+  for select to authenticated using (true);
+drop policy if exists "auth insert now_playing" on stream_overlay.now_playing;
+create policy "auth insert now_playing" on stream_overlay.now_playing
+  for insert to authenticated with check (true);
+drop policy if exists "auth update now_playing" on stream_overlay.now_playing;
+create policy "auth update now_playing" on stream_overlay.now_playing
+  for update to authenticated using (true) with check (true);
+
+do $$ begin
+  alter publication supabase_realtime add table stream_overlay.now_playing;
+exception when duplicate_object then null; end $$;
+
+-- ============================================================
 --  Helper accounts
 --  There is no public sign-up. Create each helper manually:
 --  Dashboard > Authentication > Users > "Add user" (email + password),

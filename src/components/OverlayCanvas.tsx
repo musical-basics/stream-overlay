@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import MidiFrame from "./MidiFrame";
 import RequestTicker from "./RequestTicker";
+import NowPlaying from "./NowPlaying";
 import styles from "./OverlayCanvas.module.css";
 
 const EMOJIS = ["👏", "🎉", "👏🏽", "🙌", "✨", "👏🏼"];
@@ -215,6 +216,7 @@ export default function OverlayCanvas({
     <div className={`${styles.root} ${aspectClass}`}>
       <MidiFrame aspect={aspect} />
       <RequestTicker />
+      <NowPlaying />
 
       <div className={styles.announce}>
         {previous && (
