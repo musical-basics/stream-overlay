@@ -19,6 +19,37 @@ const isBlack = (midi: number) => BLACK.has(((midi % 12) + 12) % 12);
 
 const A0 = 21;
 
+// Velocity → colour: soft notes are blue (hue 240), loud notes red (hue 0),
+// sweeping through the rainbow in between. Used for both the lit key and its
+// particle burst so a hard-struck note glows red and throws red sparks.
+function velocityColor(velocity: number): string {
+  const v = Math.max(1, Math.min(127, velocity));
+  const hue = 240 * (1 - (v - 1) / 126);
+  return `hsl(${hue} 100% 55%)`;
+}
+
+// Inward travel vector for a particle leaving a key on the given edge — i.e.
+// "off the playing surface, toward the centre of the screen". `lateral` is the
+// sideways spread along the edge; `dist` is how far it flies inward.
+function inwardVector(edge: Edge, lateral: number, dist: number): [number, number] {
+  if (edge === "top") return [lateral, dist]; // top keys: inward is downward
+  if (edge === "bottom") return [lateral, -dist]; // bottom keys: inward is upward
+  if (edge === "left") return [dist, lateral]; // left keys: inward is rightward
+  return [-dist, lateral]; // right keys: inward is leftward
+}
+
+type Particle = {
+  id: number;
+  midi: number; // which key it belongs to (rendered inside that key's slot)
+  color: string;
+  tx: number; // end translate X (px)
+  ty: number; // end translate Y (px)
+  size: number; // px
+  dur: number; // s
+};
+
+const MAX_PARTICLES = 160; // hard cap so fast playing can't pile up unbounded
+
 const D = "var(--frame-d)"; // white-key depth (inward)
 const BD = `calc(0.62 * ${D})`; // black-key depth (shorter)
 
@@ -116,30 +147,76 @@ function styleFor(k: Placed): React.CSSProperties {
 
 export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
   const [keys, setKeys] = useState<Placed[]>(() => buildKeys(aspect));
-  const [active, setActive] = useState<Set<number>>(new Set());
+  // note -> velocity (1..127) for currently-held keys; drives the lit colour.
+  const [active, setActive] = useState<Map<number, number>>(new Map());
+  const [particles, setParticles] = useState<Particle[]>([]);
+  const partSeq = useRef(0);
+  // note -> edge, so a particle burst knows which way to fly. Kept in a ref so
+  // spawnParticles stays stable (doesn't re-bind the MIDI handlers).
+  const edgeByMidi = useRef<Map<number, Edge>>(new Map());
   // Lets the "Refresh MIDI connection" broadcast re-run the connect routine.
   const reconnectRef = useRef<() => void>(() => {});
   // Channel used to relay notes (OBS can't read Web MIDI, so a real browser
   // broadcasts notes and the OBS overlay lights up from them).
   const channelRef = useRef<RealtimeChannel | null>(null);
 
-  // Set/clear a lit key. Shared by local MIDI and relayed broadcasts.
-  const applyNote = useCallback((note: number, on: boolean) => {
-    setActive((prev) => {
-      if (on) {
-        if (prev.has(note)) return prev;
-        const next = new Set(prev);
-        next.add(note);
-        return next;
-      }
-      if (!prev.has(note)) return prev;
-      const next = new Set(prev);
-      next.delete(note);
-      return next;
+  // Throw a small velocity-coloured particle burst off the pressed key.
+  const spawnParticles = useCallback((note: number, velocity: number) => {
+    const edge = edgeByMidi.current.get(note);
+    if (!edge) return;
+    const color = velocityColor(velocity);
+    const count = 3 + Math.round((velocity / 127) * 5); // 3..8, louder = more
+    const batch: Particle[] = [];
+    for (let i = 0; i < count; i++) {
+      const dist = 30 + Math.random() * 32 + (velocity / 127) * 28; // louder = higher
+      const lateral = (Math.random() - 0.5) * 26;
+      const size = 4 + Math.random() * 4;
+      const dur = 0.5 + Math.random() * 0.4;
+      const [tx, ty] = inwardVector(edge, lateral, dist);
+      batch.push({ id: partSeq.current++, midi: note, color, tx, ty, size, dur });
+    }
+    setParticles((prev) => {
+      const next = [...prev, ...batch];
+      return next.length > MAX_PARTICLES
+        ? next.slice(next.length - MAX_PARTICLES)
+        : next;
     });
+    const ids = new Set(batch.map((b) => b.id));
+    const maxMs = Math.max(...batch.map((b) => b.dur)) * 1000 + 120;
+    setTimeout(
+      () => setParticles((prev) => prev.filter((p) => !ids.has(p.id))),
+      maxMs
+    );
   }, []);
 
+  // Set/clear a lit key (with its velocity). Shared by local MIDI and relayed
+  // broadcasts. A note-on also throws a particle burst.
+  const applyNote = useCallback(
+    (note: number, on: boolean, velocity = 100) => {
+      setActive((prev) => {
+        if (on) {
+          const next = new Map(prev);
+          next.set(note, velocity);
+          return next;
+        }
+        if (!prev.has(note)) return prev;
+        const next = new Map(prev);
+        next.delete(note);
+        return next;
+      });
+      if (on) spawnParticles(note, velocity);
+    },
+    [spawnParticles]
+  );
+
   useEffect(() => setKeys(buildKeys(aspect)), [aspect]);
+
+  // Keep the note→edge lookup in sync with the current layout.
+  useEffect(() => {
+    const m = new Map<number, Edge>();
+    for (const k of keys) m.set(k.midi, k.edge);
+    edgeByMidi.current = m;
+  }, [keys]);
 
   useEffect(() => {
     if (typeof navigator.requestMIDIAccess !== "function") return; // unsupported
@@ -164,14 +241,13 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
       const on = cmd === 0x90 && vel > 0;
       const off = cmd === 0x80 || (cmd === 0x90 && vel === 0);
       if (!on && !off) return;
-      const lit = on;
-      applyNote(note, lit); // light locally
+      applyNote(note, on, vel); // light + spark locally
       // Relay to other overlay instances (notably the OBS one, which can't
-      // read Web MIDI itself).
+      // read Web MIDI itself). Velocity rides along so colours/particles match.
       channelRef.current?.send({
         type: "broadcast",
         event: "note",
-        payload: { note, on: lit },
+        payload: { note, on, vel },
       });
     };
 
@@ -186,7 +262,7 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
           access = m;
           attach(m);
           m.onstatechange = () => attach(m);
-          setActive(new Set()); // clear any stuck/lit notes on (re)connect
+          setActive(new Map()); // clear any stuck/lit notes on (re)connect
         })
         .catch(() => {});
     };
@@ -217,8 +293,13 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
       .channel("midi")
       .on("broadcast", { event: "refresh" }, () => reconnectRef.current())
       .on("broadcast", { event: "note" }, (msg) => {
-        const p = (msg.payload ?? {}) as { note?: number; on?: boolean };
-        if (typeof p.note === "number") applyNote(p.note, !!p.on);
+        const p = (msg.payload ?? {}) as {
+          note?: number;
+          on?: boolean;
+          vel?: number;
+        };
+        if (typeof p.note === "number")
+          applyNote(p.note, !!p.on, p.vel ?? 100);
       })
       .subscribe();
     channelRef.current = channel;
@@ -228,20 +309,49 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
     };
   }, [applyNote]);
 
+  // Group live particles by key so each slot renders only its own.
+  const partsByMidi = new Map<number, Particle[]>();
+  for (const p of particles) {
+    const list = partsByMidi.get(p.midi);
+    if (list) list.push(p);
+    else partsByMidi.set(p.midi, [p]);
+  }
+
   return (
     <div className={styles.frame} aria-hidden>
-      {keys.map((k) => (
-        <div key={k.midi} className={styles.slot} style={styleFor(k)}>
-          <div
-            className={[
-              styles.key,
-              styles[k.edge],
-              k.black ? styles.black : styles.white,
-              active.has(k.midi) ? styles.lit : "",
-            ].join(" ")}
-          />
-        </div>
-      ))}
+      {keys.map((k) => {
+        const vel = active.get(k.midi);
+        const parts = partsByMidi.get(k.midi);
+        return (
+          <div key={k.midi} className={styles.slot} style={styleFor(k)}>
+            <div
+              className={[
+                styles.key,
+                styles[k.edge],
+                k.black ? styles.black : styles.white,
+                vel ? styles.lit : "",
+              ].join(" ")}
+              // Velocity colour overrides the per-edge --c on the lit key only.
+              style={vel ? ({ "--c": velocityColor(vel) } as React.CSSProperties) : undefined}
+            />
+            {parts?.map((p) => (
+              <span
+                key={p.id}
+                className={styles.particle}
+                style={
+                  {
+                    "--pc": p.color,
+                    "--tx": `${p.tx}px`,
+                    "--ty": `${p.ty}px`,
+                    "--size": `${p.size}px`,
+                    "--dur": `${p.dur}s`,
+                  } as React.CSSProperties
+                }
+              />
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }

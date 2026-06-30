@@ -47,11 +47,43 @@
   --c: #fbbf24; /* amber */
 }
 
-/* Lit: fill with the side colour + glow (defined after white/black so it
-   overrides their background). Fades out on release via the transitions. */
+/* Lit: fill with the velocity colour (--c, set inline per note) + glow,
+   defined after white/black so it overrides their background. Fades out on
+   release via the transitions. */
 .lit {
   background: var(--c);
   border-color: rgba(255, 255, 255, 0.65);
   box-shadow: 0 0 8px var(--c), 0 0 20px var(--c);
   z-index: 3;
+}
+
+/* Particle thrown off a key when its note is struck. Starts at the key centre
+   and flies inward (toward screen centre) while fading + shrinking. Direction
+   and distance come from --tx/--ty (computed per edge + velocity in JS). */
+.particle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--size);
+  height: var(--size);
+  margin-left: calc(var(--size) / -2);
+  margin-top: calc(var(--size) / -2);
+  border-radius: 50%;
+  background: var(--pc);
+  box-shadow: 0 0 6px var(--pc), 0 0 12px var(--pc);
+  pointer-events: none;
+  z-index: 4; /* above keys (lit = 3) */
+  will-change: transform, opacity;
+  animation: particleRise var(--dur) ease-out forwards;
+}
+
+@keyframes particleRise {
+  from {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(var(--tx), var(--ty)) scale(0.3);
+  }
 }
