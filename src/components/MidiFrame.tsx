@@ -159,6 +159,10 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
   // Channel used to relay notes (OBS can't read Web MIDI, so a real browser
   // broadcasts notes and the OBS overlay lights up from them).
   const channelRef = useRef<RealtimeChannel | null>(null);
+  // Note events awaiting relay. We batch a frame's worth into ONE broadcast
+  // instead of one-per-event, which keeps Realtime message volume (and cost)
+  // low while preserving every note, its velocity, and its particle burst.
+  const pendingRef = useRef<Array<{ note: number; on: boolean; vel: number }>>([]);
 
   // Throw a small velocity-coloured particle burst off the pressed key.
   const spawnParticles = useCallback((note: number, velocity: number) => {
@@ -241,14 +245,10 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
       const on = cmd === 0x90 && vel > 0;
       const off = cmd === 0x80 || (cmd === 0x90 && vel === 0);
       if (!on && !off) return;
-      applyNote(note, on, vel); // light + spark locally
-      // Relay to other overlay instances (notably the OBS one, which can't
-      // read Web MIDI itself). Velocity rides along so colours/particles match.
-      channelRef.current?.send({
-        type: "broadcast",
-        event: "note",
-        payload: { note, on, vel },
-      });
+      applyNote(note, on, vel); // light + spark locally, immediately
+      // Queue for a batched relay (flushed on an interval below) so a fast
+      // passage becomes a few messages instead of hundreds.
+      pendingRef.current.push({ note, on, vel });
     };
 
     const attach = (m: MIDIAccess) =>
@@ -278,9 +278,24 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
     // reconnect stays the default no-op and the stream never flashes.
     reconnectRef.current = () => window.location.reload();
 
+    // Flush queued note events as a single batched broadcast ~20x/sec, and only
+    // when there's something to send. Chords/fast runs collapse into one
+    // message; silence sends nothing.
+    const flush = setInterval(() => {
+      const batch = pendingRef.current;
+      if (batch.length === 0) return;
+      pendingRef.current = [];
+      channelRef.current?.send({
+        type: "broadcast",
+        event: "notes",
+        payload: { e: batch },
+      });
+    }, 50);
+
     return () => {
       cancelled = true;
       reconnectRef.current = () => {};
+      clearInterval(flush);
       if (access) access.inputs.forEach((input) => (input.onmidimessage = null));
     };
   }, [applyNote]);
@@ -292,14 +307,15 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
     const channel = supabase
       .channel("midi")
       .on("broadcast", { event: "refresh" }, () => reconnectRef.current())
-      .on("broadcast", { event: "note" }, (msg) => {
+      .on("broadcast", { event: "notes" }, (msg) => {
         const p = (msg.payload ?? {}) as {
-          note?: number;
-          on?: boolean;
-          vel?: number;
+          e?: Array<{ note?: number; on?: boolean; vel?: number }>;
         };
-        if (typeof p.note === "number")
-          applyNote(p.note, !!p.on, p.vel ?? 100);
+        if (!Array.isArray(p.e)) return;
+        for (const ev of p.e) {
+          if (typeof ev.note === "number")
+            applyNote(ev.note, !!ev.on, ev.vel ?? 100);
+        }
       })
       .subscribe();
     channelRef.current = channel;
