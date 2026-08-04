@@ -28,9 +28,24 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Time-box the auth lookup. If Supabase Auth is slow/unreachable, don't let
+  // the whole /admin route hang until Vercel kills it with a 504
+  // (MIDDLEWARE_INVOCATION_TIMEOUT). Instead fail open to the page, which does
+  // its own server-side getUser() check and redirects to /login if there's
+  // genuinely no session — so this never exposes the panel.
+  let user = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("auth-timeout")), 3000);
+    });
+    const res = await Promise.race([supabase.auth.getUser(), timeout]);
+    user = res.data.user;
+  } catch {
+    return response; // slow/unreachable auth — let the page gate the request
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!user && request.nextUrl.pathname.startsWith("/admin")) {
     const redirectUrl = request.nextUrl.clone();
