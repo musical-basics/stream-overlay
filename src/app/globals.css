@@ -334,6 +334,34 @@ textarea {
   background: transparent;
 }
 
+/* Drag handle for the top-right panel position — sits on top of the preview
+   iframe; left/top mark the panel's top-right corner, so the chip hangs to
+   the left of that point (translateX(-100%)). */
+.pos-chip {
+  position: absolute;
+  transform: translateX(-100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid #4f7cff;
+  border-radius: 999px;
+  background: rgba(20, 26, 46, 0.85);
+  color: #dbe4ff;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: grab;
+  touch-action: none; /* let pointer events drive the drag on touch too */
+  z-index: 2;
+}
+
+.pos-chip-drag {
+  cursor: grabbing;
+  border-color: #8fb0ff;
+  box-shadow: 0 0 0 3px rgba(79, 124, 255, 0.35);
+}
+
 /* ---- Mobile ---- */
 @media (max-width: 560px) {
   .page {

@@ -11,6 +11,20 @@ import DoNotRequestQueue from "./DoNotRequestQueue";
 
 type HistoryItem = { id: string; content: string | null; created_at: string };
 
+// Top-right panel placement: % of overlay size, anchoring the panel's
+// TOP-RIGHT corner. Null = the default CSS position.
+type PanelPos = { x: number; y: number };
+
+// Where the default CSS position (top: 13.6vmin; right: 7.5vmin) lands, in %,
+// for each aspect — used to draw the drag chip before a custom spot is saved.
+const DEFAULT_POS: Record<"16x9" | "9x16", PanelPos> = {
+  "16x9": { x: 100 - 7.5 * (9 / 16), y: 13.6 },
+  "9x16": { x: 100 - 7.5, y: 13.6 * (9 / 16) },
+};
+
+const clamp = (v: number, lo: number, hi: number) =>
+  Math.min(hi, Math.max(lo, v));
+
 // Helpers may push to the stream at most once every 5 seconds.
 const COOLDOWN_MS = 5000;
 
@@ -36,6 +50,12 @@ export default function AdminPanel({
   const [chatInput, setChatInput] = useState("");
   const [chatSaving, setChatSaving] = useState(false);
   const [panelMode, setPanelMode] = useState("chat"); // chat | blocklist | off
+  const [panelPos, setPanelPos] = useState<PanelPos | null>(null);
+  const panelPosRef = useRef<PanelPos | null>(null); // latest drag pos, no re-render lag
+  const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
+  const previewBoxRef = useRef<HTMLDivElement | null>(null);
+  const [chatHealth, setChatHealth] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [status, setStatus] = useState<{ msg: string; ok: boolean }>({
     msg: "",
@@ -73,16 +93,66 @@ export default function AdminPanel({
     if (data) setNowPlaying(data.song ?? "");
   }
 
-  // Load the current YouTube live-chat video id so the field is pre-filled.
+  // Load the current chat settings (video id, panel mode, panel position).
+  // Also called on Realtime changes so every helper's panel stays in sync —
+  // hence the guards: don't clobber the video field mid-typing, and don't
+  // fight the drag chip while it's being dragged. select("*") keeps this
+  // working on DBs that predate the panel_x/panel_y columns.
   async function loadChatSettings() {
     const { data } = await supabase
       .from("chat_settings")
-      .select("video_id, panel_mode")
+      .select("*")
       .eq("id", 1)
       .maybeSingle();
-    if (data) {
-      setChatInput(data.video_id ?? "");
-      setPanelMode((data.panel_mode ?? "chat") || "chat");
+    if (!data) return;
+    if (document.activeElement?.id !== "chat") {
+      setChatInput((data.video_id as string) ?? "");
+    }
+    setPanelMode(((data.panel_mode as string) ?? "chat") || "chat");
+    if (!draggingRef.current) {
+      const x = Number(data.panel_x);
+      const y = Number(data.panel_y);
+      const pos =
+        data.panel_x != null && data.panel_y != null && isFinite(x) && isFinite(y)
+          ? { x, y }
+          : null;
+      panelPosRef.current = pos;
+      setPanelPos(pos);
+    }
+    checkChatHealth(((data.video_id as string) ?? "").trim());
+  }
+
+  // Ping our /api/chat route so admins can see chat problems (missing server
+  // API key, video not live, bad id) that the overlay itself hides by design.
+  async function checkChatHealth(videoId: string) {
+    if (!videoId) {
+      setChatHealth("");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/chat?video=${encodeURIComponent(videoId)}`, {
+        cache: "no-store",
+      });
+      const data = (await res.json()) as {
+        live?: boolean;
+        error?: string;
+        detail?: string;
+      };
+      if (data.error === "missing_api_key") {
+        setChatHealth(
+          "⚠️ The server is missing YOUTUBE_API_KEY (set it in Vercel → Settings → Environment Variables and redeploy) — chat can't load until then."
+        );
+      } else if (data.error) {
+        setChatHealth(`⚠️ Chat check failed: ${data.detail || data.error}`);
+      } else if (data.live) {
+        setChatHealth("✅ Live chat connected.");
+      } else {
+        setChatHealth(
+          "⏳ Video isn't live right now — chat will appear once the stream is live."
+        );
+      }
+    } catch {
+      setChatHealth("⚠️ Couldn't reach /api/chat to verify the chat setup.");
     }
   }
 
@@ -101,9 +171,22 @@ export default function AdminPanel({
     midiChannel.subscribe();
     midiChannelRef.current = midiChannel;
 
+    // Keep chat settings in sync across helper panels (and reflect the real
+    // DB state, so a failed write can't leave this panel showing the wrong
+    // mode indefinitely).
+    const settingsChannel = supabase
+      .channel("chat-settings-admin")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "stream_overlay", table: "chat_settings" },
+        () => loadChatSettings()
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
       supabase.removeChannel(midiChannel);
+      supabase.removeChannel(settingsChannel);
       if (cooldownTimer.current) clearInterval(cooldownTimer.current);
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
@@ -208,15 +291,20 @@ export default function AdminPanel({
       },
       { onConflict: "id" }
     );
-    if (!error) setChatInput(videoId); // reflect the normalized id back
+    if (!error) {
+      setChatInput(videoId); // reflect the normalized id back
+      checkChatHealth(videoId);
+    }
     setChatSaving(false);
     flash(error ? error.message : "Live chat updated 💬", !error);
   }
 
   // Switch what the top-right overlay panel shows (chat | blocklist | off).
   // Optimistic — reflect immediately, then persist (panel_mode only, so it
-  // doesn't disturb the stored video id).
+  // doesn't disturb the stored video id). If the write fails, revert so the
+  // buttons never show a mode the overlay isn't actually in.
   async function savePanelMode(mode: string) {
+    const prev = panelMode;
     setPanelMode(mode);
     const { error } = await supabase.from("chat_settings").upsert(
       {
@@ -228,6 +316,7 @@ export default function AdminPanel({
       },
       { onConflict: "id" }
     );
+    if (error) setPanelMode(prev);
     flash(
       error
         ? error.message
@@ -238,6 +327,61 @@ export default function AdminPanel({
             : "Overlay panel hidden",
       !error
     );
+  }
+
+  // Persist the dragged top-right panel position (or null = back to default).
+  async function savePanelPos(pos: PanelPos | null) {
+    const { error } = await supabase.from("chat_settings").upsert(
+      {
+        id: 1,
+        panel_x: pos ? pos.x : null,
+        panel_y: pos ? pos.y : null,
+        helper_id: userId,
+        helper_name: helperName,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
+    if (error) {
+      const stale = /panel_x|panel_y|schema cache/i.test(error.message);
+      flash(
+        stale
+          ? "DB is missing panel_x/panel_y — run the updated supabase/schema.sql in the Supabase SQL editor"
+          : error.message,
+        false
+      );
+    } else {
+      flash(pos ? "Panel position saved 📍" : "Panel back to default corner 📍");
+    }
+  }
+
+  // ---- Drag chip over the live preview -------------------------------------
+  // The chip marks the panel's top-right corner. Pointer capture keeps the
+  // drag alive even though the preview is an iframe underneath.
+  function chipPointerDown(e: React.PointerEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    draggingRef.current = true;
+    setDragging(true);
+  }
+
+  function chipPointerMove(e: React.PointerEvent<HTMLButtonElement>) {
+    if (!draggingRef.current) return;
+    const rect = previewBoxRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = clamp(((e.clientX - rect.left) / rect.width) * 100, 10, 100);
+    const y = clamp(((e.clientY - rect.top) / rect.height) * 100, 0, 92);
+    const pos = { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
+    panelPosRef.current = pos;
+    setPanelPos(pos);
+  }
+
+  function chipPointerUp() {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    setDragging(false);
+    const pos = panelPosRef.current;
+    if (pos) savePanelPos(pos);
   }
 
   async function markStreamStart() {
@@ -395,6 +539,14 @@ export default function AdminPanel({
             Paste the live stream URL (or just the video ID) for the current
             stream.
           </p>
+          {chatHealth && (
+            <p
+              className={chatHealth.startsWith("⚠️") ? "status err" : "muted"}
+              style={{ margin: "8px 0 0" }}
+            >
+              {chatHealth}
+            </p>
+          )}
         </form>
 
         {/* ---- Do-not-request list ---- */}
@@ -444,15 +596,50 @@ export default function AdminPanel({
         </div>
         <p className="muted" style={{ margin: "8px 0 0" }}>
           Exactly what&apos;s on the overlay right now — submit text or hit
-          Applause and watch it here (audio is muted in this preview).
+          Applause and watch it here (audio is muted in this preview). Drag the
+          📍 chip to reposition the top-right panel (chat / do-not-request);
+          the chip marks the panel&apos;s top-right corner.
         </p>
-        <div className={`preview preview-${previewAspect}`}>
+        <div
+          ref={previewBoxRef}
+          className={`preview preview-${previewAspect}`}
+        >
           <iframe
             title="Overlay preview"
             src={`/overlay/${previewAspect}?preview=1${isLionel ? "&midi=1" : ""}`}
             allow="midi"
           />
+          {panelMode !== "off" && (
+            <button
+              type="button"
+              className={`pos-chip ${dragging ? "pos-chip-drag" : ""}`}
+              style={{
+                left: `${(panelPos ?? DEFAULT_POS[previewAspect]).x}%`,
+                top: `${(panelPos ?? DEFAULT_POS[previewAspect]).y}%`,
+              }}
+              onPointerDown={chipPointerDown}
+              onPointerMove={chipPointerMove}
+              onPointerUp={chipPointerUp}
+              onPointerCancel={chipPointerUp}
+              title="Drag to move the top-right panel"
+            >
+              📍 {panelMode === "chat" ? "Chat" : "Don't-request"}
+            </button>
+          )}
         </div>
+        {panelPos && (
+          <button
+            className="btn-ghost btn-sm"
+            style={{ marginTop: 8 }}
+            onClick={() => {
+              panelPosRef.current = null;
+              setPanelPos(null);
+              savePanelPos(null);
+            }}
+          >
+            ↺ Reset panel to default corner
+          </button>
+        )}
 
         {isLionel && (
           <button

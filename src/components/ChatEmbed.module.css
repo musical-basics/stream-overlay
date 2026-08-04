@@ -1,21 +1,15 @@
-/* Live chat as plain text on a transparent background, top-right corner just
-   under the request ticker. Newest messages sit at the bottom and the column
-   grows upward; older lines fall out of the top as they exceed the height. */
+/* Live chat as plain text on a transparent background. Placement comes from
+   the TopRightPanel wrapper; this only lays out the column. Newest messages
+   sit at the bottom and the column grows upward; older lines fall out of the
+   top as they exceed the height. */
 .chat {
-  position: absolute;
-  top: 13.6vmin;
-  right: 7.5vmin; /* aligned with the ticker's right edge */
-  width: 30vmin;
-  min-width: 280px;
-  max-width: 420px;
+  width: 100%;
   max-height: 60vh;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   gap: 0.6vmin;
   overflow: hidden;
-  pointer-events: none; /* display only — never intercept clicks in OBS */
-  z-index: 1;
 }
 
 .line {

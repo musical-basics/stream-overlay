@@ -1,0 +1,14 @@
+/* Shared placement for the top-right overlay panel (chat or do-not-request).
+   Defaults to the classic top-right spot; when admins drag it in the panel
+   preview, an inline left/top override (anchored to the panel's top-right
+   corner via translateX) replaces these. */
+.wrap {
+  position: absolute;
+  top: 13.6vmin;
+  right: 7.5vmin;
+  width: 30vmin;
+  min-width: 280px;
+  max-width: 420px;
+  z-index: 1;
+  pointer-events: none; /* display only — never intercept clicks in OBS */
+}

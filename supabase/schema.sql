@@ -184,6 +184,14 @@ create table if not exists stream_overlay.chat_settings (
 alter table stream_overlay.chat_settings
   add column if not exists panel_mode text not null default 'chat';
 
+-- Draggable placement of the top-right panel, set from the admin preview.
+-- Stored as percentages of the overlay size, anchoring the panel's TOP-RIGHT
+-- corner (panel_x = % from the left edge to the panel's right edge,
+-- panel_y = % from the top). Null = the default top-right position.
+alter table stream_overlay.chat_settings
+  add column if not exists panel_x double precision,
+  add column if not exists panel_y double precision;
+
 insert into stream_overlay.chat_settings (id, video_id) values (1, '')
   on conflict (id) do nothing;
 
