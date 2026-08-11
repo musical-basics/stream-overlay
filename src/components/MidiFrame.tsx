@@ -50,6 +50,21 @@ type Particle = {
 
 const MAX_PARTICLES = 160; // hard cap so fast playing can't pile up unbounded
 
+// The overlay runs inside the admin panel's iframe, so a MIDI failure here is
+// otherwise invisible: a dark keyboard looks identical whether the permission
+// was denied, Chrome found no devices, or MIDI was never requested at all.
+// Post the real state up to the parent (same origin only) so the panel can say
+// which one it is. Harmless no-op in OBS, where there is no parent frame.
+type MidiState = "unsupported" | "skipped" | "error" | "ready" | "note";
+
+function report(r: { state: MidiState; inputs?: string[]; message?: string }) {
+  if (typeof window === "undefined" || window.parent === window) return;
+  window.parent.postMessage(
+    { type: "midi-status", ...r },
+    window.location.origin
+  );
+}
+
 const D = "var(--frame-d)"; // white-key depth (inward)
 const BD = `calc(0.62 * ${D})`; // black-key depth (shorter)
 
@@ -223,7 +238,10 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
   }, [keys]);
 
   useEffect(() => {
-    if (typeof navigator.requestMIDIAccess !== "function") return; // unsupported
+    if (typeof navigator.requestMIDIAccess !== "function") {
+      report({ state: "unsupported" }); // e.g. OBS's browser — relay-only
+      return;
+    }
 
     // Only fire the MIDI permission request in the real overlay (OBS) or when
     // explicitly allowed (?midi=1). In an admin preview (?preview=1) we skip it
@@ -231,10 +249,24 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
     // helpers just see the (unlit) keyboard frame.
     const params = new URLSearchParams(window.location.search);
     const allowMidi = !params.has("preview") || params.get("midi") === "1";
-    if (!allowMidi) return;
+    if (!allowMidi) {
+      report({ state: "skipped" });
+      return;
+    }
 
     let cancelled = false;
     let access: MIDIAccess | null = null;
+
+    // Heartbeat so the panel can distinguish "device attached but silent"
+    // (cable/keyboard problem) from "notes arriving". Throttled to 1/sec —
+    // it's a liveness signal, not a note stream.
+    let lastPing = 0;
+    const pingNote = () => {
+      const now = performance.now();
+      if (now - lastPing < 1000) return;
+      lastPing = now;
+      report({ state: "note" });
+    };
 
     const onMessage = (e: MIDIMessageEvent) => {
       const data = e.data;
@@ -246,13 +278,20 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
       const off = cmd === 0x80 || (cmd === 0x90 && vel === 0);
       if (!on && !off) return;
       applyNote(note, on, vel); // light + spark locally, immediately
+      pingNote();
       // Queue for a batched relay (flushed on an interval below) so a fast
       // passage becomes a few messages instead of hundreds.
       pendingRef.current.push({ note, on, vel });
     };
 
-    const attach = (m: MIDIAccess) =>
-      m.inputs.forEach((input) => (input.onmidimessage = onMessage));
+    const attach = (m: MIDIAccess) => {
+      const names: string[] = [];
+      m.inputs.forEach((input) => {
+        input.onmidimessage = onMessage;
+        names.push(input.name || "unnamed device");
+      });
+      report({ state: "ready", inputs: names });
+    };
 
     const connect = () => {
       navigator
@@ -264,7 +303,15 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
           m.onstatechange = () => attach(m);
           setActive(new Map()); // clear any stuck/lit notes on (re)connect
         })
-        .catch(() => {});
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          // Denied permission / blocked by policy used to vanish here, leaving
+          // no way to tell why the keyboard stayed dark.
+          report({
+            state: "error",
+            message: err instanceof Error ? err.message : String(err),
+          });
+        });
     };
 
     connect();

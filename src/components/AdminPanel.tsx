@@ -35,6 +35,35 @@ function displayName(email: string): string {
   return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
+// MIDI health, as reported by the overlay preview iframe. A dark keyboard on
+// its own says nothing about *why*, so the preview posts its real state up and
+// we spell it out here.
+type MidiStatus = {
+  state: "unknown" | "unsupported" | "skipped" | "error" | "ready";
+  inputs: string[];
+  message: string;
+  lastNote: string; // local time of the most recent note, "" if none yet
+};
+
+function midiLabel(m: MidiStatus): string {
+  switch (m.state) {
+    case "unknown":
+      return "🎹 MIDI: waiting for the preview to report…";
+    case "unsupported":
+      return "⚠️ MIDI: this browser has no Web MIDI support.";
+    case "skipped":
+      return "⚠️ MIDI: never requested — the preview didn't get the midi=1 flag.";
+    case "error":
+      return `⚠️ MIDI: access failed — ${m.message || "unknown error"}. Check the permission in Chrome's address bar, then reload.`;
+    case "ready":
+      if (m.inputs.length === 0)
+        return "⚠️ MIDI: Chrome connected but sees 0 input devices. Power on the keyboard / re-seat the USB cable, then hit Refresh.";
+      return m.lastNote
+        ? `✅ MIDI: ${m.inputs.join(", ")} — last note ${m.lastNote}`
+        : `⚠️ MIDI: ${m.inputs.join(", ")} attached, but no notes received yet. Play a key — if nothing lands, the keyboard isn't reaching this input.`;
+  }
+}
+
 export default function AdminPanel({
   userId,
   userEmail,
@@ -56,6 +85,13 @@ export default function AdminPanel({
   const draggingRef = useRef(false);
   const previewBoxRef = useRef<HTMLDivElement | null>(null);
   const [chatHealth, setChatHealth] = useState("");
+  // What the preview iframe reports about its Web MIDI connection.
+  const [midi, setMidi] = useState<MidiStatus>({
+    state: "unknown",
+    inputs: [],
+    message: "",
+    lastNote: "",
+  });
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [status, setStatus] = useState<{ msg: string; ok: boolean }>({
     msg: "",
@@ -190,6 +226,35 @@ export default function AdminPanel({
       if (cooldownTimer.current) clearInterval(cooldownTimer.current);
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
+  }, []);
+
+  // The preview iframe reports its Web MIDI state up to us (same origin only).
+  useEffect(() => {
+    function onReport(e: MessageEvent) {
+      if (e.origin !== window.location.origin) return;
+      const d = e.data as {
+        type?: string;
+        state?: MidiStatus["state"] | "note";
+        inputs?: string[];
+        message?: string;
+      };
+      if (d?.type !== "midi-status") return;
+      // const so the narrowing below survives into the setMidi closure.
+      const state = d.state;
+      // A "note" ping is liveness only — it must not clobber the device list.
+      if (state === "note") {
+        setMidi((m) => ({ ...m, lastNote: new Date().toLocaleTimeString() }));
+        return;
+      }
+      setMidi((m) => ({
+        ...m,
+        state: state ?? "unknown",
+        inputs: d.inputs ?? [],
+        message: d.message ?? "",
+      }));
+    }
+    window.addEventListener("message", onReport);
+    return () => window.removeEventListener("message", onReport);
   }, []);
 
   function flash(msg: string, ok = true) {
@@ -642,14 +707,23 @@ export default function AdminPanel({
         )}
 
         {isLionel && (
-          <button
-            className="btn-ghost"
-            style={{ width: "100%", marginTop: 10 }}
-            onClick={refreshMidi}
-            title="Re-establish the MIDI connection on the overlay if it stops responding"
-          >
-            🎹 Refresh MIDI connection
-          </button>
+          <>
+            <button
+              className="btn-ghost"
+              style={{ width: "100%", marginTop: 10 }}
+              onClick={refreshMidi}
+              title="Re-establish the MIDI connection on the overlay if it stops responding"
+            >
+              🎹 Refresh MIDI connection
+            </button>
+            <p
+              className={midiLabel(midi).startsWith("✅") ? "muted" : "status err"}
+              style={{ margin: "6px 0 0" }}
+              role="status"
+            >
+              {midiLabel(midi)}
+            </p>
+          </>
         )}
 
         {/* ---- History ---- */}
