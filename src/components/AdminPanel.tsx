@@ -43,6 +43,7 @@ type MidiStatus = {
   inputs: string[];
   message: string;
   lastNote: string; // local time of the most recent note, "" if none yet
+  relay: string; // last Realtime subscribe status, "" until it reports
 };
 
 function midiLabel(m: MidiStatus): string {
@@ -55,12 +56,17 @@ function midiLabel(m: MidiStatus): string {
       return "⚠️ MIDI: never requested — the preview didn't get the midi=1 flag.";
     case "error":
       return `⚠️ MIDI: access failed — ${m.message || "unknown error"}. Check the permission in Chrome's address bar, then reload.`;
-    case "ready":
+    case "ready": {
       if (m.inputs.length === 0)
         return "⚠️ MIDI: Chrome connected but sees 0 input devices. Power on the keyboard / re-seat the USB cable, then hit Refresh.";
+      // A live device but a dead relay means the overlay lights up here and
+      // stays dark in OBS — worth calling out separately.
+      if (m.relay && m.relay !== "SUBSCRIBED")
+        return `⚠️ MIDI: ${m.inputs.join(", ")} reading fine, but the relay to OBS is ${m.relay}. It reconnects on the next note played.`;
       return m.lastNote
-        ? `✅ MIDI: ${m.inputs.join(", ")} — last note ${m.lastNote}`
+        ? `✅ MIDI: ${m.inputs.join(", ")} — relay live, last note ${m.lastNote}`
         : `⚠️ MIDI: ${m.inputs.join(", ")} attached, but no notes received yet. Play a key — if nothing lands, the keyboard isn't reaching this input.`;
+    }
   }
 }
 
@@ -91,6 +97,7 @@ export default function AdminPanel({
     inputs: [],
     message: "",
     lastNote: "",
+    relay: "",
   });
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [status, setStatus] = useState<{ msg: string; ok: boolean }>({
@@ -234,16 +241,23 @@ export default function AdminPanel({
       if (e.origin !== window.location.origin) return;
       const d = e.data as {
         type?: string;
-        state?: MidiStatus["state"] | "note";
+        state?: MidiStatus["state"] | "note" | "relay";
         inputs?: string[];
         message?: string;
+        relay?: string;
       };
       if (d?.type !== "midi-status") return;
       // const so the narrowing below survives into the setMidi closure.
       const state = d.state;
-      // A "note" ping is liveness only — it must not clobber the device list.
+      // "note" and "relay" are liveness pings — neither may clobber the
+      // device list the "ready" report established.
       if (state === "note") {
         setMidi((m) => ({ ...m, lastNote: new Date().toLocaleTimeString() }));
+        return;
+      }
+      if (state === "relay") {
+        const relay = d.relay ?? "";
+        setMidi((m) => ({ ...m, relay }));
         return;
       }
       setMidi((m) => ({

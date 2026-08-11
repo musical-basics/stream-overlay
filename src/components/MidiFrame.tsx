@@ -55,9 +55,20 @@ const MAX_PARTICLES = 160; // hard cap so fast playing can't pile up unbounded
 // was denied, Chrome found no devices, or MIDI was never requested at all.
 // Post the real state up to the parent (same origin only) so the panel can say
 // which one it is. Harmless no-op in OBS, where there is no parent frame.
-type MidiState = "unsupported" | "skipped" | "error" | "ready" | "note";
+type MidiState =
+  | "unsupported"
+  | "skipped"
+  | "error"
+  | "ready"
+  | "note"
+  | "relay";
 
-function report(r: { state: MidiState; inputs?: string[]; message?: string }) {
+function report(r: {
+  state: MidiState;
+  inputs?: string[];
+  message?: string;
+  relay?: string;
+}) {
   if (typeof window === "undefined" || window.parent === window) return;
   window.parent.postMessage(
     { type: "midi-status", ...r },
@@ -171,6 +182,9 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
   const edgeByMidi = useRef<Map<number, Edge>>(new Map());
   // Lets the "Refresh MIDI connection" broadcast re-run the connect routine.
   const reconnectRef = useRef<() => void>(() => {});
+  // Rejoins the relay channel if it has dropped. Called from the MIDI event
+  // path — which Chrome never throttles — so a hidden tab heals itself.
+  const repairRelayRef = useRef<() => void>(() => {});
   // Channel used to relay notes (OBS can't read Web MIDI, so a real browser
   // broadcasts notes and the OBS overlay lights up from them).
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -268,6 +282,44 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
       report({ state: "note" });
     };
 
+    // Relay batching, driven by the MIDI events themselves rather than by a
+    // wall-clock interval. Chrome clamps timers in a hidden tab to 1/sec, and
+    // to 1/min once it has been hidden for five minutes ("intensive
+    // throttling") — and this tab sits hidden behind OBS for a whole stream,
+    // which is what used to kill the relay a few minutes in. Incoming MIDI is
+    // never throttled, so a note both fills the batch and pushes it out; the
+    // timer below is only a trailing backstop for the last note of a phrase.
+    const BATCH_MS = 50;
+    let lastSend = 0;
+    let trailing: ReturnType<typeof setTimeout> | null = null;
+
+    const flushNow = () => {
+      if (trailing) {
+        clearTimeout(trailing);
+        trailing = null;
+      }
+      const batch = pendingRef.current;
+      if (batch.length === 0) return;
+      pendingRef.current = [];
+      lastSend = performance.now();
+      // Every flush is also a chance to notice the socket died and rebuild it.
+      repairRelayRef.current();
+      channelRef.current?.send({
+        type: "broadcast",
+        event: "notes",
+        payload: { e: batch },
+      });
+    };
+
+    const scheduleFlush = () => {
+      const wait = BATCH_MS - (performance.now() - lastSend);
+      if (wait <= 0) {
+        flushNow();
+        return;
+      }
+      if (!trailing) trailing = setTimeout(flushNow, wait);
+    };
+
     const onMessage = (e: MIDIMessageEvent) => {
       const data = e.data;
       if (!data || data.length < 2) return;
@@ -279,9 +331,10 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
       if (!on && !off) return;
       applyNote(note, on, vel); // light + spark locally, immediately
       pingNote();
-      // Queue for a batched relay (flushed on an interval below) so a fast
-      // passage becomes a few messages instead of hundreds.
+      // Queue for a batched relay so a fast passage becomes a few messages
+      // instead of hundreds, then push it out on this same (unthrottled) event.
       pendingRef.current.push({ note, on, vel });
+      scheduleFlush();
     };
 
     const attach = (m: MIDIAccess) => {
@@ -325,24 +378,10 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
     // reconnect stays the default no-op and the stream never flashes.
     reconnectRef.current = () => window.location.reload();
 
-    // Flush queued note events as a single batched broadcast ~20x/sec, and only
-    // when there's something to send. Chords/fast runs collapse into one
-    // message; silence sends nothing.
-    const flush = setInterval(() => {
-      const batch = pendingRef.current;
-      if (batch.length === 0) return;
-      pendingRef.current = [];
-      channelRef.current?.send({
-        type: "broadcast",
-        event: "notes",
-        payload: { e: batch },
-      });
-    }, 50);
-
     return () => {
       cancelled = true;
       reconnectRef.current = () => {};
-      clearInterval(flush);
+      if (trailing) clearTimeout(trailing);
       if (access) access.inputs.forEach((input) => (input.onmidimessage = null));
     };
   }, [applyNote]);
@@ -351,24 +390,82 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
   // admin "Refresh MIDI connection" signal. The OBS overlay (no Web MIDI)
   // lights up purely from the relayed "note" broadcasts.
   useEffect(() => {
-    const channel = supabase
-      .channel("midi")
-      .on("broadcast", { event: "refresh" }, () => reconnectRef.current())
-      .on("broadcast", { event: "notes" }, (msg) => {
-        const p = (msg.payload ?? {}) as {
-          e?: Array<{ note?: number; on?: boolean; vel?: number }>;
-        };
-        if (!Array.isArray(p.e)) return;
-        for (const ev of p.e) {
-          if (typeof ev.note === "number")
-            applyNote(ev.note, !!ev.on, ev.vel ?? 100);
-        }
-      })
-      .subscribe();
-    channelRef.current = channel;
-    return () => {
+    let cancelled = false;
+    let channel: RealtimeChannel | null = null;
+    let joined = false;
+    let disposing = false;
+    let lastRejoin = 0;
+    // Bumped per channel built, so a late status callback from a channel we
+    // already discarded can't report over a healthy replacement.
+    let gen = 0;
+
+    const open = () => {
+      const myGen = ++gen;
+      const ch = supabase
+        .channel("midi")
+        .on("broadcast", { event: "refresh" }, () => reconnectRef.current())
+        .on("broadcast", { event: "notes" }, (msg) => {
+          const p = (msg.payload ?? {}) as {
+            e?: Array<{ note?: number; on?: boolean; vel?: number }>;
+          };
+          if (!Array.isArray(p.e)) return;
+          for (const ev of p.e) {
+            if (typeof ev.note === "number")
+              applyNote(ev.note, !!ev.on, ev.vel ?? 100);
+          }
+        })
+        .subscribe((status) => {
+          if (cancelled || myGen !== gen) return;
+          joined = status === "SUBSCRIBED";
+          report({ state: "relay", relay: status });
+          // A throttled tab misses Realtime's heartbeat and the server hangs
+          // up. Rebuild rather than sitting there silently disconnected.
+          if (
+            status === "CHANNEL_ERROR" ||
+            status === "TIMED_OUT" ||
+            status === "CLOSED"
+          )
+            rejoin();
+        });
+      channel = ch;
+      channelRef.current = ch;
+    };
+
+    // Tear down and rebuild the channel, rate-limited so a flapping socket
+    // can't spin. The guard uses a timestamp comparison, not a timer, so it
+    // still works when the tab is throttled.
+    const rejoin = () => {
+      if (cancelled || disposing) return;
+      const now = performance.now();
+      if (now - lastRejoin < 2000) return;
+      lastRejoin = now;
+      disposing = true;
+      const old = channel;
+      channel = null;
       channelRef.current = null;
-      supabase.removeChannel(channel);
+      if (old) supabase.removeChannel(old);
+      disposing = false;
+      supabase.realtime.connect(); // no-op if the socket is already up
+      open();
+    };
+
+    open();
+    repairRelayRef.current = () => {
+      if (!joined) rejoin();
+    };
+
+    // Coming back to the tab is the other natural moment to check the socket.
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && !joined) rejoin();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      repairRelayRef.current = () => {};
+      document.removeEventListener("visibilitychange", onVisible);
+      channelRef.current = null;
+      if (channel) supabase.removeChannel(channel);
     };
   }, [applyNote]);
 
