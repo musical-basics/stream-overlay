@@ -1,8 +1,13 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import AuthLinkFallback from "@/components/AuthLinkFallback";
 
 export default function Home() {
   return (
     <main className="page">
+      <Suspense fallback={null}>
+        <AuthLinkFallback />
+      </Suspense>
       <div className="card">
         <h1>Stream Overlay</h1>
         <p className="muted">Pick where you&apos;re headed.</p>

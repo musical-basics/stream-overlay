@@ -15,6 +15,7 @@ const LINK_ERRORS: Record<string, string> = {
   "missing-code": "That link was missing its code. Request a fresh one below.",
   "invalid-link":
     "That link has expired or was already used. Request a fresh one below.",
+  "link-failed": "That link couldn't be used. Request a fresh one below.",
 };
 
 function ForgotForm() {

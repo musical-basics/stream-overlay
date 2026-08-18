@@ -107,18 +107,39 @@ vercel --prod --scope musical-basics   # redeploy with the new vars
 There's no admin role — any confirmed helper account can use this, and `/admin`
 is gated only on "is logged in".
 
-**Two things must be set in the Supabase dashboard for it to work:**
+**Supabase dashboard settings this depends on** (all under
+**Authentication → URL Configuration** unless noted):
 
-1. **Authentication → URL Configuration → Redirect URLs** must include the
-   callback for every origin you use, or Supabase silently sends the helper to
-   the Site URL instead:
+1. **Site URL** — must be the production origin:
+   ```
+   https://stream-overlay-iota.vercel.app
+   ```
+   A fresh Supabase project defaults this to `http://localhost:3000`. Leave it
+   and every reset email dumps helpers on a dead localhost link.
+2. **Redirect URLs** — must include the callback for every origin you use, or
+   Supabase discards `redirectTo` and falls back to the Site URL:
    ```
    https://stream-overlay-iota.vercel.app/auth/callback
    http://localhost:3000/auth/callback
    ```
-2. **Authentication → Emails → SMTP.** The built-in Supabase mailer is capped at
+3. **Authentication → Emails → SMTP.** The built-in Supabase mailer is capped at
    a couple of messages per hour and is not meant for production — if resets
    need to be reliable, plug in real SMTP (Resend, Postmark, SES).
+
+To check the config without burning an email, hit the verify endpoint with a
+junk token and see where it sends you — if it lands anywhere other than the URL
+you passed, that URL isn't allowlisted and you're seeing the Site URL:
+
+```bash
+curl -s -o /dev/null -w '%{redirect_url}\n' \
+  -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+  "$NEXT_PUBLIC_SUPABASE_URL/auth/v1/verify?token=bogus&type=recovery&redirect_to=https%3A%2F%2Fstream-overlay-iota.vercel.app%2Fauth%2Fcallback"
+```
+
+As a safety net, the landing page ([`AuthLinkFallback`](src/components/AuthLinkFallback.tsx))
+picks up an auth `?code=` or `#error=` that gets dropped on it by that fallback
+and forwards it to the right page — so a misconfigured allowlist degrades to a
+working reset rather than a blank page, provided the Site URL is correct.
 
 Two limits worth telling helpers about: the link expires after an hour, and it
 must be opened **in the same browser that requested it** (the PKCE verifier is
