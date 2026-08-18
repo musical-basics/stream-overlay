@@ -9,6 +9,7 @@ logged so you can export **YouTube chapter timestamps** after the stream.
 - **`/admin`** — helper control panel: submit text, mark stream start, applause, history (login required).
 - **`/admin/export`** — relative timestamps formatted for YouTube chapters.
 - **`/login`** — Supabase email/password sign-in.
+- **`/forgot`** → **`/reset-password`** — self-serve password reset by email.
 
 Stack: **Next.js (App Router) · Supabase (Auth + Postgres + Realtime) · Vercel**.
 
@@ -43,6 +44,10 @@ Helper marks start   ──insert──▶ stream_events (stream_start)
 There is no public sign-up. For each helper:
 **Authentication → Users → Add user** → enter email + password, and tick
 **"Auto Confirm User"** so they can log in right away.
+
+Helpers who forget their password can reset it themselves from the
+**Forgot password?** link on `/login` — see [Password resets](#password-resets)
+for the two settings it depends on.
 
 ### 3. Configure environment variables
 ```bash
@@ -87,6 +92,41 @@ vercel env add SUPABASE_SERVICE_ROLE_KEY production --scope musical-basics
 vercel --prod --scope musical-basics   # redeploy with the new vars
 ```
 (Or add them in Vercel → Project → **Settings → Environment Variables**.)
+
+---
+
+## Password resets
+`/login` has a **Forgot password?** link. The flow is:
+
+```
+/forgot ──resetPasswordForEmail──▶ Supabase emails a one-time link
+        ──▶ /auth/callback  (swaps the code for a session cookie)
+        ──▶ /reset-password (set + confirm, min 8 chars) ──▶ /admin
+```
+
+There's no admin role — any confirmed helper account can use this, and `/admin`
+is gated only on "is logged in".
+
+**Two things must be set in the Supabase dashboard for it to work:**
+
+1. **Authentication → URL Configuration → Redirect URLs** must include the
+   callback for every origin you use, or Supabase silently sends the helper to
+   the Site URL instead:
+   ```
+   https://stream-overlay-iota.vercel.app/auth/callback
+   http://localhost:3000/auth/callback
+   ```
+2. **Authentication → Emails → SMTP.** The built-in Supabase mailer is capped at
+   a couple of messages per hour and is not meant for production — if resets
+   need to be reliable, plug in real SMTP (Resend, Postmark, SES).
+
+Two limits worth telling helpers about: the link expires after an hour, and it
+must be opened **in the same browser that requested it** (the PKCE verifier is
+stored in a cookie there). Opening it on a phone after requesting on a laptop
+will fail with "This link isn't valid".
+
+If someone is locked out entirely, you can still set a password by hand in
+**Authentication → Users → … → Reset password**.
 
 ---
 

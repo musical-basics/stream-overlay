@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
@@ -57,10 +58,13 @@ function LoginForm() {
           onChange={(e) => setPassword(e.target.value)}
         />
 
-        <div style={{ marginTop: 20 }}>
+        <div className="row" style={{ marginTop: 20 }}>
           <button className="btn-primary" type="submit" disabled={busy}>
             {busy ? "Signing in…" : "Log in"}
           </button>
+          <Link className="link" href="/forgot" style={{ fontSize: 13 }}>
+            Forgot password?
+          </Link>
         </div>
 
         <div className={`status ${error ? "err" : ""}`}>{error}</div>
