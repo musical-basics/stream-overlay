@@ -38,15 +38,30 @@ function displayName(email: string): string {
 // MIDI health, as reported by the overlay preview iframe. A dark keyboard on
 // its own says nothing about *why*, so the preview posts its real state up and
 // we spell it out here.
+type MidiInputInfo = { id: string; name: string };
+
 type MidiStatus = {
   state: "unknown" | "unsupported" | "skipped" | "error" | "ready";
-  inputs: string[];
+  inputs: MidiInputInfo[];
   message: string;
   lastNote: string; // local time of the most recent note, "" if none yet
   relay: string; // last Realtime subscribe status, "" until it reports
+  selectedId: string; // input the overlay actually bound; "" = all of them
 };
 
+// localStorage key shared with the overlay iframe (same origin). The iframe
+// reads it directly on connect, so the choice survives reloads without needing
+// a round trip through this panel.
+const MIDI_INPUT_KEY = "midi-input-id";
+
 function midiLabel(m: MidiStatus): string {
+  // What the overlay is listening to, for the status line. Only one input
+  // selected? Name it — otherwise the label would claim every device is live
+  // when only one of them is actually bound.
+  const listening = m.selectedId
+    ? m.inputs.find((i) => i.id === m.selectedId)?.name || "selected input"
+    : m.inputs.map((i) => i.name).join(", ");
+
   switch (m.state) {
     case "unknown":
       return "🎹 MIDI: waiting for the preview to report…";
@@ -62,10 +77,10 @@ function midiLabel(m: MidiStatus): string {
       // A live device but a dead relay means the overlay lights up here and
       // stays dark in OBS — worth calling out separately.
       if (m.relay && m.relay !== "SUBSCRIBED")
-        return `⚠️ MIDI: ${m.inputs.join(", ")} reading fine, but the relay to OBS is ${m.relay}. It reconnects on the next note played.`;
+        return `⚠️ MIDI: ${listening} reading fine, but the relay to OBS is ${m.relay}. It reconnects on the next note played.`;
       return m.lastNote
-        ? `✅ MIDI: ${m.inputs.join(", ")} — relay live, last note ${m.lastNote}`
-        : `⚠️ MIDI: ${m.inputs.join(", ")} attached, but no notes received yet. Play a key — if nothing lands, the keyboard isn't reaching this input.`;
+        ? `✅ MIDI: listening to ${listening} — relay live, last note ${m.lastNote}`
+        : `⚠️ MIDI: listening to ${listening}, but no notes received yet. Play a key — if nothing lands, pick the right input below.`;
     }
   }
 }
@@ -90,6 +105,8 @@ export default function AdminPanel({
   const [dragging, setDragging] = useState(false);
   const draggingRef = useRef(false);
   const previewBoxRef = useRef<HTMLDivElement | null>(null);
+  // The preview iframe, so we can post the MIDI input choice down to it.
+  const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [chatHealth, setChatHealth] = useState("");
   // What the preview iframe reports about its Web MIDI connection.
   const [midi, setMidi] = useState<MidiStatus>({
@@ -98,6 +115,7 @@ export default function AdminPanel({
     message: "",
     lastNote: "",
     relay: "",
+    selectedId: "",
   });
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [status, setStatus] = useState<{ msg: string; ok: boolean }>({
@@ -242,9 +260,10 @@ export default function AdminPanel({
       const d = e.data as {
         type?: string;
         state?: MidiStatus["state"] | "note" | "relay";
-        inputs?: string[];
+        inputs?: MidiInputInfo[];
         message?: string;
         relay?: string;
+        selectedId?: string;
       };
       if (d?.type !== "midi-status") return;
       // const so the narrowing below survives into the setMidi closure.
@@ -265,6 +284,9 @@ export default function AdminPanel({
         state: state ?? "unknown",
         inputs: d.inputs ?? [],
         message: d.message ?? "",
+        // The overlay reports what it actually bound, which may differ from
+        // what we asked for if that device is no longer plugged in.
+        selectedId: d.selectedId ?? "",
       }));
     }
     window.addEventListener("message", onReport);
@@ -484,6 +506,27 @@ export default function AdminPanel({
     setTimeout(() => setApplauseBusy(false), 1200);
   }
 
+  // Pick which MIDI input the overlay listens to. Persist first (the iframe
+  // reads localStorage on connect, so the choice survives a reload), then poke
+  // the iframe to re-bind right now instead of waiting for one.
+  function selectMidiInput(id: string) {
+    try {
+      if (id) window.localStorage.setItem(MIDI_INPUT_KEY, id);
+      else window.localStorage.removeItem(MIDI_INPUT_KEY);
+    } catch {
+      // Blocked storage: the live re-bind below still works for this session.
+    }
+    setMidi((m) => ({ ...m, selectedId: id, lastNote: "" }));
+    previewFrameRef.current?.contentWindow?.postMessage(
+      { type: "midi-select" },
+      window.location.origin
+    );
+    const name = id
+      ? midi.inputs.find((i) => i.id === id)?.name || "that input"
+      : "all inputs";
+    flash(`Listening to ${name} 🎹`);
+  }
+
   async function refreshMidi() {
     await midiChannelRef.current?.send({
       type: "broadcast",
@@ -684,6 +727,7 @@ export default function AdminPanel({
           className={`preview preview-${previewAspect}`}
         >
           <iframe
+            ref={previewFrameRef}
             title="Overlay preview"
             src={`/overlay/${previewAspect}?preview=1${isLionel ? "&midi=1" : ""}`}
             allow="midi"
@@ -722,6 +766,27 @@ export default function AdminPanel({
 
         {isLionel && (
           <>
+            {midi.state === "ready" && midi.inputs.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <label htmlFor="midi-input">MIDI input</label>
+                <select
+                  id="midi-input"
+                  className="select"
+                  value={midi.selectedId}
+                  onChange={(e) => selectMidiInput(e.target.value)}
+                  title="Which keyboard the overlay listens to"
+                >
+                  <option value="">
+                    All inputs ({midi.inputs.length})
+                  </option>
+                  {midi.inputs.map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <button
               className="btn-ghost"
               style={{ width: "100%", marginTop: 10 }}

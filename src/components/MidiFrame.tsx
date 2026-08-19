@@ -63,17 +63,36 @@ type MidiState =
   | "note"
   | "relay";
 
+// One entry per input the browser can see, so the panel can offer a picker
+// rather than the all-or-nothing listen we used to do.
+type MidiInputInfo = { id: string; name: string };
+
 function report(r: {
   state: MidiState;
-  inputs?: string[];
+  inputs?: MidiInputInfo[];
   message?: string;
   relay?: string;
+  selectedId?: string; // "" means "listen to every input"
 }) {
   if (typeof window === "undefined" || window.parent === window) return;
   window.parent.postMessage(
     { type: "midi-status", ...r },
     window.location.origin
   );
+}
+
+// Which input to listen to. Stored in localStorage rather than passed down from
+// the panel, because the iframe connects to MIDI before the parent could post a
+// choice — reading it here means the very first attach already honours it. Same
+// origin as the panel, so both sides see the same value.
+const INPUT_KEY = "midi-input-id";
+
+function savedInputId(): string {
+  try {
+    return window.localStorage.getItem(INPUT_KEY) ?? "";
+  } catch {
+    return ""; // private mode / blocked storage: fall back to all inputs
+  }
 }
 
 const D = "var(--frame-d)"; // white-key depth (inward)
@@ -337,13 +356,26 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
       scheduleFlush();
     };
 
+    // Bind the message handler to the chosen input only (or to all of them when
+    // nothing is chosen). Every input is unbound first, so switching devices
+    // can't leave the previous one still feeding notes in. If the saved input
+    // has gone away — keyboard unplugged, port renumbered — we fall back to
+    // listening to everything rather than going silently dead, and tell the
+    // panel the selection didn't stick by reporting the id we actually used.
     const attach = (m: MIDIAccess) => {
-      const names: string[] = [];
+      const wanted = savedInputId();
+      const inputs: MidiInputInfo[] = [];
+      let matched = false;
       m.inputs.forEach((input) => {
-        input.onmidimessage = onMessage;
-        names.push(input.name || "unnamed device");
+        inputs.push({ id: input.id, name: input.name || "unnamed device" });
+        if (wanted && input.id === wanted) matched = true;
       });
-      report({ state: "ready", inputs: names });
+      const selectedId = matched ? wanted : "";
+      m.inputs.forEach((input) => {
+        input.onmidimessage =
+          selectedId && input.id !== selectedId ? null : onMessage;
+      });
+      report({ state: "ready", inputs, selectedId });
     };
 
     const connect = () => {
@@ -369,6 +401,18 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
 
     connect();
 
+    // The panel writes the new choice to localStorage, then posts this so we
+    // re-bind immediately — no reload, no dropped stream. Notes still held on
+    // the old input would never get their note-off, so clear the lit keys.
+    const onSelect = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      const d = e.data as { type?: string };
+      if (d?.type !== "midi-select" || !access) return;
+      setActive(new Map());
+      attach(access);
+    };
+    window.addEventListener("message", onSelect);
+
     // A real reconnect must re-acquire the device from the browser. Web MIDI
     // caches the granted MIDIAccess, so re-calling requestMIDIAccess won't
     // re-scan a keyboard that dropped — it just re-binds the same stale (often
@@ -381,6 +425,7 @@ export default function MidiFrame({ aspect }: { aspect: OverlayAspect }) {
     return () => {
       cancelled = true;
       reconnectRef.current = () => {};
+      window.removeEventListener("message", onSelect);
       if (trailing) clearTimeout(trailing);
       if (access) access.inputs.forEach((input) => (input.onmidimessage = null));
     };

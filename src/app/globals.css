@@ -71,6 +71,29 @@ textarea:focus {
   border-color: #4f7cff;
 }
 
+/* Matches the text inputs above; appearance:none so the dark theme survives
+   the native macOS/Windows control chrome. */
+.select {
+  width: 100%;
+  appearance: none;
+  background: #0f1115;
+  border: 1px solid #2b313d;
+  border-radius: 10px;
+  color: #e7e9ee;
+  padding: 12px 36px 12px 14px;
+  font-size: 16px;
+  outline: none;
+  cursor: pointer;
+  /* Chevron, inlined so it needs no asset request. */
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%2398a0b3' stroke-width='1.8' d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+
+.select:focus {
+  border-color: #4f7cff;
+}
+
 button {
   cursor: pointer;
   border: none;
